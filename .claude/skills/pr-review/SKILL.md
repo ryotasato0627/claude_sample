@@ -1,8 +1,7 @@
 ---
-
 name: pr-review
 description: Review Pull Requests according to project development rules, coding standards, architecture, testing requirements, and documented review guidelines.
------------------------------------------------------------------------------------------------------------------------------------------------------------------
+---
 
 # PR Review Skill
 

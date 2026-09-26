@@ -1,0 +1,6 @@
+# ../api/openapi.yaml から生成する。生成物(*.gen.go)は手で編集しない。
+package: openapi
+output: internal/handler/openapi/api.gen.go
+generate:
+  models: true
+  gin-server: true

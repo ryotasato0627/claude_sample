@@ -1,0 +1,51 @@
+openapi: 3.0.3
+info:
+  title: Task Management API
+  version: 0.1.0
+  description: |
+    タスク管理サンプルアプリの API 仕様。この定義が唯一の正であり、
+    Backend(oapi-codegen)と Frontend(openapi-typescript)のコードはここから生成する。
+servers:
+  - url: /
+paths:
+  /api/health:
+    get:
+      operationId: getHealth
+      summary: ヘルスチェック(DB への疎通を含む)
+      tags: [system]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+        "503":
+          description: DB に接続できない
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    Health:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok, unavailable]
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          example: forbidden
+        message:
+          type: string

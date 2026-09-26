@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop, main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare env
+        run: |
+          cp .env.example .env
+          echo "HOST_UID=$(id -u)" >> "$GITHUB_ENV"
+          echo "HOST_GID=$(id -g)" >> "$GITHUB_ENV"
+      - name: Build dev image
+        run: docker compose build backend
+      - name: go vet
+        run: docker compose run --rm --no-deps backend go vet ./...
+      - name: golangci-lint (depguard で依存方向を検査)
+        run: docker compose run --rm --no-deps backend golangci-lint run
+      - name: go test (db / migrate を起動して実行)
+        run: docker compose run --rm backend go test ./...
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare env
+        run: |
+          cp .env.example .env
+          echo "HOST_UID=$(id -u)" >> "$GITHUB_ENV"
+          echo "HOST_GID=$(id -g)" >> "$GITHUB_ENV"
+      - name: Build dev image
+        run: docker compose build frontend
+      - name: typecheck
+        run: docker compose run --rm --no-deps frontend npm run typecheck
+      - name: lint
+        run: docker compose run --rm --no-deps frontend npm run lint
+      - name: test
+        run: docker compose run --rm --no-deps frontend npm test
+      - name: build
+        run: docker compose run --rm --no-deps frontend npm run build
+
+  # OpenAPI / SQL から生成したコードが最新であること(差分が出たら失敗)
+  codegen-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare env
+        run: |
+          cp .env.example .env
+          echo "HOST_UID=$(id -u)" >> "$GITHUB_ENV"
+          echo "HOST_GID=$(id -g)" >> "$GITHUB_ENV"
+      - name: Generate
+        run: make generate
+      - name: Check no diff
+        run: |
+          git status --porcelain
+          test -z "$(git status --porcelain)" || { echo "生成物が最新ではありません。make generate を実行してコミットしてください"; git diff; exit 1; }
+
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build prod images
+        run: make build-prod

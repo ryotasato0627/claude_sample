@@ -1,0 +1,65 @@
+version: "2"
+
+# 依存方向(docs/spec/requirements.md 第7.1章)を depguard で機械的に検査する。
+#   handler ─▶ service ─▶ domain
+#   repository / infra ─▶ service の port(interface)を実装
+# 新しいパッケージを追加したら、ここの許可・禁止リストを更新する。
+linters:
+  default: standard
+  enable:
+    - depguard
+  settings:
+    depguard:
+      rules:
+        domain:
+          files:
+            - "**/internal/domain/**"
+          list-mode: strict
+          allow:
+            - $gostd
+        service:
+          files:
+            - "**/internal/service/**"
+          deny:
+            - pkg: taskapp/backend/internal/handler
+              desc: service は handler に依存しない
+            - pkg: taskapp/backend/internal/repository
+              desc: service は repository の具体実装に依存しない。port(interface)を service 側で定義する
+            - pkg: taskapp/backend/internal/infra
+              desc: service は infra の具体実装に依存しない。port(interface)を service 側で定義する
+            - pkg: github.com/gin-gonic/gin
+              desc: service は gin に依存しない
+            - pkg: database/sql
+              desc: service は DB に直接依存しない
+        handler:
+          files:
+            - "**/internal/handler/**"
+          deny:
+            - pkg: taskapp/backend/internal/repository
+              desc: handler は repository に依存しない。service の interface を使う
+            - pkg: taskapp/backend/internal/infra
+              desc: handler は infra に依存しない
+            - pkg: database/sql
+              desc: handler は DB に直接依存しない
+        repository:
+          files:
+            - "**/internal/repository/**"
+          deny:
+            - pkg: taskapp/backend/internal/handler
+              desc: repository は handler に依存しない
+            - pkg: github.com/gin-gonic/gin
+              desc: repository は gin に依存しない
+        infra:
+          files:
+            - "**/internal/infra/**"
+          deny:
+            - pkg: taskapp/backend/internal/handler
+              desc: infra は handler に依存しない
+            - pkg: taskapp/backend/internal/repository
+              desc: infra は repository に依存しない
+            - pkg: github.com/gin-gonic/gin
+              desc: infra は gin に依存しない
+  exclusions:
+    paths:
+      - internal/handler/openapi
+      - internal/repository/sqlcgen

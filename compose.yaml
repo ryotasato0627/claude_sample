@@ -1,0 +1,85 @@
+# 開発用の構成。`make up`(= docker compose up)で DB → マイグレーション → API/画面まで起動する。
+# 設定値は .env から読む(`make env` で .env.example から作成)。
+
+x-db-env: &db-env
+  DATABASE_URL: postgres://${POSTGRES_USER:?}:${POSTGRES_PASSWORD:?}@db:5432/${POSTGRES_DB:?}?sslmode=disable
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?set in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
+      POSTGRES_DB: ${POSTGRES_DB:?set in .env}
+    ports:
+      - "127.0.0.1:${DB_PORT:-5433}:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  # one-shot。`docker compose run --rm migrate down 1` のように引数だけ差し替えて使える。
+  migrate:
+    image: migrate/migrate:v4.20.1
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    entrypoint: ["migrate", "-path=/migrations", "-database=postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}?sslmode=disable"]
+    command: ["up"]
+    volumes:
+      - ./backend/db/migrations:/migrations
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  backend:
+    build:
+      context: ./backend
+      target: dev
+      args:
+        HOST_UID: ${HOST_UID:-1000}
+        HOST_GID: ${HOST_GID:-1000}
+    environment:
+      <<: *db-env
+      PORT: "8080"
+      JWT_SECRET: ${JWT_SECRET:?set in .env}
+    ports:
+      - "${BACKEND_PORT:-8080}:8080"
+    volumes:
+      - .:/workspace
+      - go-mod:/go/pkg
+      - go-build:/tmp/go-build
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  frontend:
+    build:
+      context: ./frontend
+      target: dev
+    environment:
+      BACKEND_URL: http://backend:8080
+    ports:
+      - "${FRONTEND_PORT:-5173}:5173"
+    volumes:
+      - .:/workspace
+      - frontend-node-modules:/workspace/frontend/node_modules
+    depends_on:
+      - backend
+
+  # ---- コード生成ツール(`docker compose run --rm sqlc generate`)。up では起動しない ----
+  sqlc:
+    profiles: [tools]
+    image: sqlc/sqlc:1.31.1
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    working_dir: /src/backend
+    volumes:
+      - .:/src # イメージ内の /workspace/sqlc を隠さないよう /src にマウントする
+
+volumes:
+  db-data:
+  go-mod:
+  go-build:
+  frontend-node-modules:
