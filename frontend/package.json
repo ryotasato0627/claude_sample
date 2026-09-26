@@ -13,10 +13,12 @@
     "generate:api": "openapi-typescript ../api/openapi.yaml -o src/api/schema.gen.ts"
   },
   "dependencies": {
+    "@picocss/pico": "^2.1.1",
     "@tanstack/react-query": "^5.104.0",
     "openapi-fetch": "^0.17.0",
     "react": "^19.3.0",
-    "react-dom": "^19.3.0"
+    "react-dom": "^19.3.0",
+    "react-router": "^8.4.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

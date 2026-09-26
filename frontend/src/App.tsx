@@ -1,22 +1,24 @@
-import { useQuery } from "@tanstack/react-query";
+import { Navigate, Route, Routes } from "react-router";
 
-import { api } from "./api/client";
+import { GuestOnly, RequireAuth } from "./auth/guards";
+import { Layout } from "./components/Layout";
+import { Home } from "./pages/Home";
+import { Login } from "./pages/Login";
+import { Register } from "./pages/Register";
 
 export function App() {
-  const health = useQuery({
-    queryKey: ["health"],
-    queryFn: async () => {
-      const { data, response } = await api.GET("/api/health");
-      return { status: data?.status ?? "unavailable", httpStatus: response.status };
-    },
-  });
-
   return (
-    <main>
-      <h1>Task Management</h1>
-      {health.isPending && <p>Loading...</p>}
-      {health.isError && <p role="alert">API に接続できません</p>}
-      {health.data && <p>API status: {health.data.status}</p>}
-    </main>
+    <Routes>
+      <Route element={<GuestOnly />}>
+        <Route path="/login" element={<Login />} />
+        <Route path="/register" element={<Register />} />
+      </Route>
+      <Route element={<RequireAuth />}>
+        <Route element={<Layout />}>
+          <Route index element={<Home />} />
+        </Route>
+      </Route>
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
   );
 }

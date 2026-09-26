@@ -1,24 +1,21 @@
 import createClient, { type Middleware } from "openapi-fetch";
 
+import { sessionStore } from "../auth/session";
 import type { paths } from "./schema.gen";
-
-const TOKEN_KEY = "token";
-
-export const tokenStore = {
-  get: () => localStorage.getItem(TOKEN_KEY),
-  set: (token: string) => localStorage.setItem(TOKEN_KEY, token),
-  clear: () => localStorage.removeItem(TOKEN_KEY),
-};
 
 // JWT の付与と 401 時の扱いは、この 1 箇所で行う。
 const auth: Middleware = {
   onRequest({ request }) {
-    const token = tokenStore.get();
+    const token = sessionStore.get()?.token;
     if (token) request.headers.set("Authorization", `Bearer ${token}`);
     return request;
   },
-  onResponse({ response }) {
-    if (response.status === 401) tokenStore.clear();
+  onResponse({ request, response }) {
+    // 古いトークンで送ったリクエストの 401 で、再ログイン後の新しいセッションを消さない。
+    const token = sessionStore.get()?.token;
+    if (response.status === 401 && token && request.headers.get("Authorization") === `Bearer ${token}`) {
+      sessionStore.clear();
+    }
     return response;
   },
 };
