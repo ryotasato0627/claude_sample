@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 
 import { sessionStore } from "../auth/session";
 import { api } from "./client";
@@ -9,14 +9,10 @@ type LoginRequest = components["schemas"]["LoginRequest"];
 type RegisterRequest = components["schemas"]["RegisterRequest"];
 
 export function useLogin() {
-  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (body: LoginRequest) => unwrap(api.POST("/api/auth/login", { body })),
-    // 前のユーザーのキャッシュを消してからセッションを保存する。画面の遷移は GuestOnly が行う。
-    onSuccess: ({ token, expiresAt, user }) => {
-      queryClient.clear();
-      sessionStore.set({ token, expiresAt, user });
-    },
+    // 前のユーザーのキャッシュは clearCacheOnUserChange が消す。画面の遷移は GuestOnly が行う。
+    onSuccess: ({ token, expiresAt, user }) => sessionStore.set({ token, expiresAt, user }),
   });
 }
 

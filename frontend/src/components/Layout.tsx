@@ -1,17 +1,12 @@
-import { useQueryClient } from "@tanstack/react-query";
 import { Link, Outlet } from "react-router";
 
 import { sessionStore, useSession } from "../auth/session";
 
 export function Layout() {
   const session = useSession();
-  const queryClient = useQueryClient();
 
-  // トークンの失効 API は無いため、保存したセッションと前のユーザーのキャッシュを消す。
-  const logout = () => {
-    queryClient.clear();
-    sessionStore.clear();
-  };
+  // トークンの失効 API は無いため、保存したセッションを消す。キャッシュは clearCacheOnUserChange が消す。
+  const logout = () => sessionStore.clear();
 
   return (
     <>

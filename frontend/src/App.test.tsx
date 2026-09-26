@@ -1,10 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "./App";
 import { api } from "./api/client";
+import { clearCacheOnUserChange } from "./auth/cache";
 import { sessionStore } from "./auth/session";
 
 vi.mock("./api/client", () => ({ api: { GET: vi.fn(), POST: vi.fn() } }));
@@ -17,8 +18,13 @@ function CurrentLocation() {
   return <div data-testid="location">{location.pathname + location.search}</div>;
 }
 
+let unsubscribe: (() => void) | undefined;
+afterEach(() => unsubscribe?.());
+
+// main.tsx と同じく、ユーザーが変わったらキャッシュを消す。
 function renderApp(path = "/") {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  unsubscribe = clearCacheOnUserChange(queryClient);
   render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={[path]}>
