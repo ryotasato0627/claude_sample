@@ -62,33 +62,49 @@ Claude Code の Skill / Agent を使った開発ワークフローを試すた�
 
 ## 4. API概要
 
-正は `api/openapi.yaml`。以下はエンドポイント一覧(案)で、追加・変更時は OpenAPI を先に更新する。
+正は `api/openapi.yaml`(実装済み)。追加・変更時は OpenAPI を先に更新し、コードを再生成する。
 
-```
-POST   /api/auth/register
-POST   /api/auth/login
-GET    /api/projects
-POST   /api/projects
-GET    /api/projects/:id
-PATCH  /api/projects/:id
-DELETE /api/projects/:id
-GET    /api/projects/:id/members
-POST   /api/projects/:id/members
-PATCH  /api/projects/:id/members/:userId
-DELETE /api/projects/:id/members/:userId
-GET    /api/projects/:id/tasks
-POST   /api/projects/:id/tasks
-GET    /api/tasks/:id
-PATCH  /api/tasks/:id
-PATCH  /api/tasks/:id/status
-PATCH  /api/tasks/:id/assignee
-DELETE /api/tasks/:id
-GET    /api/tasks/:id/comments
-POST   /api/tasks/:id/comments
-PATCH  /api/comments/:id
-DELETE /api/comments/:id
-GET    /api/tasks/search
-```
+| メソッド・パス | 内容 | 必要なロール |
+|---|---|---|
+| `GET /api/health` | ヘルスチェック(DB 疎通を含む) | 認証不要 |
+| `POST /api/auth/register` | ユーザー登録 | 認証不要 |
+| `POST /api/auth/login` | ログイン(JWT 発行) | 認証不要 |
+| `GET /api/projects` | 自分が所属するプロジェクト一覧 | ログイン済み |
+| `POST /api/projects` | プロジェクト作成(作成者は owner) | ログイン済み |
+| `GET /api/projects/{projectId}` | 詳細 | 全ロール |
+| `PATCH` / `DELETE /api/projects/{projectId}` | 更新 / 削除 | owner |
+| `GET /api/projects/{projectId}/members` | メンバー一覧 | 全ロール |
+| `POST /api/projects/{projectId}/members` | メンバー追加(メールアドレスで指定) | owner |
+| `PATCH` / `DELETE /api/projects/{projectId}/members/{userId}` | ロール変更 / 削除 | owner |
+| `GET /api/projects/{projectId}/tasks` | Task 一覧(絞り込み・ページネーション) | 全ロール |
+| `POST /api/projects/{projectId}/tasks` | Task 作成 | owner / member |
+| `GET /api/tasks/search` | Task 検索(所属プロジェクトのみ) | ログイン済み |
+| `GET /api/tasks/{taskId}` | Task 詳細 | 全ロール |
+| `PATCH /api/tasks/{taskId}` | タイトル・説明の更新 | owner / member |
+| `PATCH /api/tasks/{taskId}/status` | ステータス変更 | owner / member |
+| `PATCH /api/tasks/{taskId}/assignee` | 担当者変更(`null` で解除) | owner / member |
+| `DELETE /api/tasks/{taskId}` | Task 削除 | owner |
+| `GET /api/tasks/{taskId}/comments` | コメント一覧(古い順) | 全ロール |
+| `POST /api/tasks/{taskId}/comments` | コメント投稿 | owner / member |
+| `PATCH` / `DELETE /api/comments/{commentId}` | コメント編集 / 削除 | owner は全件、member は自分のみ |
+
+### 共通の規約
+
+| ステータス | 意味 |
+|---|---|
+| `400` | リクエストの形式が不正(JSON の構文・型、パスやクエリの型) |
+| `401` | 未認証、またはトークンが不正・期限切れ(`WWW-Authenticate: Bearer` を付ける) |
+| `403` | プロジェクトのメンバーだが、ロールの権限が足りない |
+| `404` | 存在しない、**またはメンバーではないプロジェクトのリソース**(存在を知らせない) |
+| `409` | 競合(メールの重複、既にメンバー、最後の owner の降格・削除) |
+| `413` | リクエストボディが 1MiB 超 |
+| `422` | 入力値の検証エラー(必須・長さ・形式・不正な列挙値・担当者がメンバーでない など) |
+
+- エラー本文は `{"code": "...", "message": "..."}`。想定外のエラー(500)は内容を返さない。
+- 部分更新(`PATCH`)は、指定した項目だけを変更する。未指定は変更なし、`description: ""` は空にする、`assigneeId: null` は解除。
+- 検索・一覧の `limit` は 1〜100(既定 20)、`offset` は 0 以上。応答は `{items, total, limit, offset}`(`total` はページネーション前の件数)。
+- メンバーをプロジェクトから外すと、そのプロジェクトで担当していた Task の担当は解除される。
+- 認証が不要なルートは `publicPaths`(`backend/internal/handler/http.go`)と OpenAPI の `security: []` の両方に書く。両者の一致は `spec_test.go` が検査する。
 
 ## 5. データモデル(案)
 
@@ -219,7 +235,7 @@ cmd/server (composition root)
 ├── api/openapi.yaml
 ├── backend/
 │   ├── Dockerfile
-│   ├── cmd/server/         # composition root(main.go)
+│   ├── cmd/server/         # composition root(app.go の newRouter)
 │   ├── internal/
 │   │   ├── domain/        # エンティティ・ロール・Policy(依存なし)
 │   │   ├── service/       # ユースケース + port(interface)定義
@@ -242,9 +258,12 @@ cmd/server (composition root)
 ```
 
 ## 11. 実装状況
-- 雛形は作成済み。`make up` で DB → マイグレーション(全テーブル作成)→ API / 画面が起動し、`GET /api/health`(DB 疎通確認つき)が Frontend のプロキシ経由でも応答する。
-- `api/openapi.yaml` には現時点で `/api/health` のみ定義している。第4章のエンドポイントは `add-endpoint` Skill で OpenAPI から順に追加する。
-- `domain` / `service` / `infra` はまだ実装なし(パッケージの責務のみ `doc.go` に記載)。
+- 第4章の API はすべて実装済み(Backend)。`domain` / `service` / `handler` / `repository` / `infra` は第7.1章の依存方向に従う(depguard で検査)。
+- テスト: `domain`(権限判定)、`service`(fake 注入。権限マトリクスの全組み合わせ)、`handler`(認証・エラー変換・入力の異常系・OpenAPI との整合)、`repository`(実 DB。一時スキーマで分離)、`cmd/server`(実 DB を使った E2E)。
+- Frontend は、API の型(`src/api/schema.gen.ts`)を生成済み。画面は未実装(ヘルスチェックの表示のみ)。
+- 既知の制約:
+  - 「最後の owner は降格・削除できない」は、確認と更新が別々の操作。同時に複数の owner を降格すると owner が 0 人になり得る(厳密にするなら repository でロックを取る)。
+  - ログインの試行回数制限、CORS、トークンの失効(ログアウト)は未対応(スコープ外)。
 
 ## 12. 未決事項
 なし

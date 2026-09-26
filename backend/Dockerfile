@@ -25,6 +25,7 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/server ./cmd/serve
 
 # ---- prod ----
 FROM gcr.io/distroless/static-debian12:nonroot AS prod
+ENV GIN_MODE=release
 COPY --from=build /out/server /server
 EXPOSE 8080
 ENTRYPOINT ["/server"]

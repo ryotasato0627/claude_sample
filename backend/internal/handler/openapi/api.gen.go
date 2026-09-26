@@ -4,7 +4,20 @@
 package openapi
 
 import (
+	"bytes"
+	"compress/flate"
+	"encoding/base64"
+	"fmt"
+	"net/http"
+	"net/url"
+	"path"
+	"strings"
+	"time"
+
+	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/gin-gonic/gin"
+	"github.com/oapi-codegen/runtime"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
 // Defines values for HealthStatus.
@@ -25,6 +38,88 @@ func (e HealthStatus) Valid() bool {
 	}
 }
 
+// Defines values for Role.
+const (
+	RoleMember Role = "member"
+	RoleOwner  Role = "owner"
+	RoleViewer Role = "viewer"
+)
+
+// Valid indicates whether the value is a known member of the Role enum.
+func (e Role) Valid() bool {
+	switch e {
+	case RoleMember:
+		return true
+	case RoleOwner:
+		return true
+	case RoleViewer:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TaskStatus.
+const (
+	Done       TaskStatus = "done"
+	InProgress TaskStatus = "in_progress"
+	Todo       TaskStatus = "todo"
+)
+
+// Valid indicates whether the value is a known member of the TaskStatus enum.
+func (e TaskStatus) Valid() bool {
+	switch e {
+	case Done:
+		return true
+	case InProgress:
+		return true
+	case Todo:
+		return true
+	default:
+		return false
+	}
+}
+
+// AddMemberRequest defines model for AddMemberRequest.
+type AddMemberRequest struct {
+	Email string `json:"email"`
+	Role  Role   `json:"role"`
+}
+
+// Comment defines model for Comment.
+type Comment struct {
+	Body      string    `json:"body"`
+	CreatedAt time.Time `json:"createdAt"`
+	Id        int64     `json:"id"`
+	TaskId    int64     `json:"taskId"`
+	UpdatedAt time.Time `json:"updatedAt"`
+	UserId    int64     `json:"userId"`
+}
+
+// CommentRequest defines model for CommentRequest.
+type CommentRequest struct {
+	Body string `json:"body"`
+}
+
+// CreateProjectRequest defines model for CreateProjectRequest.
+type CreateProjectRequest struct {
+	Description *string `json:"description,omitempty"`
+	Name        string  `json:"name"`
+}
+
+// CreateTaskRequest defines model for CreateTaskRequest.
+type CreateTaskRequest struct {
+	Description *string `json:"description,omitempty"`
+	Title       string  `json:"title"`
+}
+
+// Error defines model for Error.
+type Error struct {
+	// Code Example: forbidden
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
 // Health defines model for Health.
 type Health struct {
 	Status HealthStatus `json:"status"`
@@ -33,11 +128,288 @@ type Health struct {
 // HealthStatus defines model for Health.Status.
 type HealthStatus string
 
+// LoginRequest defines model for LoginRequest.
+type LoginRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+// LoginResponse defines model for LoginResponse.
+type LoginResponse struct {
+	ExpiresAt time.Time `json:"expiresAt"`
+
+	// Token JWT。Authorization ヘッダに `Bearer <token>` の形式で送る
+	Token string `json:"token"`
+	User  User   `json:"user"`
+}
+
+// Member defines model for Member.
+type Member struct {
+	Email  string `json:"email"`
+	Name   string `json:"name"`
+	Role   Role   `json:"role"`
+	UserId int64  `json:"userId"`
+}
+
+// Project defines model for Project.
+type Project struct {
+	CreatedAt   time.Time `json:"createdAt"`
+	Description string    `json:"description"`
+	Id          int64     `json:"id"`
+	Name        string    `json:"name"`
+	Role        Role      `json:"role"`
+}
+
+// RegisterRequest defines model for RegisterRequest.
+type RegisterRequest struct {
+	// Email メールアドレス。形式が不正なら 422
+	Email string `json:"email"`
+	Name  string `json:"name"`
+
+	// Password 8〜72 文字(bcrypt の上限が 72 バイトのため)
+	Password string `json:"password"`
+}
+
+// Role defines model for Role.
+type Role string
+
+// Task defines model for Task.
+type Task struct {
+	AssigneeId  *int64     `json:"assigneeId"`
+	CreatedAt   time.Time  `json:"createdAt"`
+	CreatedBy   int64      `json:"createdBy"`
+	Description string     `json:"description"`
+	Id          int64      `json:"id"`
+	ProjectId   int64      `json:"projectId"`
+	Status      TaskStatus `json:"status"`
+	Title       string     `json:"title"`
+	UpdatedAt   time.Time  `json:"updatedAt"`
+}
+
+// TaskList defines model for TaskList.
+type TaskList struct {
+	Items  []Task `json:"items"`
+	Limit  int    `json:"limit"`
+	Offset int    `json:"offset"`
+
+	// Total 条件に一致する全件数(ページネーション前)
+	Total int `json:"total"`
+}
+
+// TaskStatus defines model for TaskStatus.
+type TaskStatus string
+
+// UpdateMemberRoleRequest defines model for UpdateMemberRoleRequest.
+type UpdateMemberRoleRequest struct {
+	Role Role `json:"role"`
+}
+
+// UpdateProjectRequest defines model for UpdateProjectRequest.
+type UpdateProjectRequest struct {
+	Description *string `json:"description,omitempty"`
+	Name        *string `json:"name,omitempty"`
+}
+
+// UpdateTaskAssigneeRequest defines model for UpdateTaskAssigneeRequest.
+type UpdateTaskAssigneeRequest struct {
+	AssigneeId *int64 `json:"assigneeId"`
+}
+
+// UpdateTaskRequest defines model for UpdateTaskRequest.
+type UpdateTaskRequest struct {
+	Description *string `json:"description,omitempty"`
+	Title       *string `json:"title,omitempty"`
+}
+
+// UpdateTaskStatusRequest defines model for UpdateTaskStatusRequest.
+type UpdateTaskStatusRequest struct {
+	Status TaskStatus `json:"status"`
+}
+
+// User defines model for User.
+type User struct {
+	CreatedAt time.Time           `json:"createdAt"`
+	Email     openapi_types.Email `json:"email"`
+	Id        int64               `json:"id"`
+	Name      string              `json:"name"`
+}
+
+// AssigneeIdFilter defines model for AssigneeIdFilter.
+type AssigneeIdFilter = int64
+
+// CommentId defines model for CommentId.
+type CommentId = int64
+
+// Limit defines model for Limit.
+type Limit = int
+
+// Offset defines model for Offset.
+type Offset = int
+
+// ProjectId defines model for ProjectId.
+type ProjectId = int64
+
+// Query defines model for Query.
+type Query = string
+
+// StatusFilter defines model for StatusFilter.
+type StatusFilter = TaskStatus
+
+// TaskId defines model for TaskId.
+type TaskId = int64
+
+// UserId defines model for UserId.
+type UserId = int64
+
+// BadRequest defines model for BadRequest.
+type BadRequest = Error
+
+// Conflict defines model for Conflict.
+type Conflict = Error
+
+// Forbidden defines model for Forbidden.
+type Forbidden = Error
+
+// NotFound defines model for NotFound.
+type NotFound = Error
+
+// Unauthorized defines model for Unauthorized.
+type Unauthorized = Error
+
+// Unprocessable defines model for Unprocessable.
+type Unprocessable = Error
+
+// ListProjectTasksParams defines parameters for ListProjectTasks.
+type ListProjectTasksParams struct {
+	// Q タイトル・説明の部分一致(大文字小文字を区別しない)
+	Q          *Query            `form:"q,omitempty" json:"q,omitempty"`
+	Status     *StatusFilter     `form:"status,omitempty" json:"status,omitempty"`
+	AssigneeId *AssigneeIdFilter `form:"assigneeId,omitempty" json:"assigneeId,omitempty"`
+	Limit      *Limit            `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset     *Offset           `form:"offset,omitempty" json:"offset,omitempty"`
+}
+
+// SearchTasksParams defines parameters for SearchTasks.
+type SearchTasksParams struct {
+	// Q タイトル・説明の部分一致(大文字小文字を区別しない)
+	Q          *Query            `form:"q,omitempty" json:"q,omitempty"`
+	ProjectId  *int64            `form:"projectId,omitempty" json:"projectId,omitempty"`
+	Status     *StatusFilter     `form:"status,omitempty" json:"status,omitempty"`
+	AssigneeId *AssigneeIdFilter `form:"assigneeId,omitempty" json:"assigneeId,omitempty"`
+	Limit      *Limit            `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset     *Offset           `form:"offset,omitempty" json:"offset,omitempty"`
+}
+
+// LoginJSONRequestBody defines body for Login for application/json ContentType.
+type LoginJSONRequestBody = LoginRequest
+
+// RegisterJSONRequestBody defines body for Register for application/json ContentType.
+type RegisterJSONRequestBody = RegisterRequest
+
+// UpdateCommentJSONRequestBody defines body for UpdateComment for application/json ContentType.
+type UpdateCommentJSONRequestBody = CommentRequest
+
+// CreateProjectJSONRequestBody defines body for CreateProject for application/json ContentType.
+type CreateProjectJSONRequestBody = CreateProjectRequest
+
+// UpdateProjectJSONRequestBody defines body for UpdateProject for application/json ContentType.
+type UpdateProjectJSONRequestBody = UpdateProjectRequest
+
+// AddMemberJSONRequestBody defines body for AddMember for application/json ContentType.
+type AddMemberJSONRequestBody = AddMemberRequest
+
+// UpdateMemberRoleJSONRequestBody defines body for UpdateMemberRole for application/json ContentType.
+type UpdateMemberRoleJSONRequestBody = UpdateMemberRoleRequest
+
+// CreateTaskJSONRequestBody defines body for CreateTask for application/json ContentType.
+type CreateTaskJSONRequestBody = CreateTaskRequest
+
+// UpdateTaskJSONRequestBody defines body for UpdateTask for application/json ContentType.
+type UpdateTaskJSONRequestBody = UpdateTaskRequest
+
+// UpdateTaskAssigneeJSONRequestBody defines body for UpdateTaskAssignee for application/json ContentType.
+type UpdateTaskAssigneeJSONRequestBody = UpdateTaskAssigneeRequest
+
+// CreateCommentJSONRequestBody defines body for CreateComment for application/json ContentType.
+type CreateCommentJSONRequestBody = CommentRequest
+
+// UpdateTaskStatusJSONRequestBody defines body for UpdateTaskStatus for application/json ContentType.
+type UpdateTaskStatusJSONRequestBody = UpdateTaskStatusRequest
+
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// Login ログイン(JWT を発行)
+	// (POST /api/auth/login)
+	Login(c *gin.Context)
+	// Register ユーザー登録
+	// (POST /api/auth/register)
+	Register(c *gin.Context)
+	// DeleteComment コメント削除(owner は全件、member は自分のコメントのみ、viewer は不可)
+	// (DELETE /api/comments/{commentId})
+	DeleteComment(c *gin.Context, commentId CommentId)
+	// UpdateComment コメント編集(owner は全件、member は自分のコメントのみ、viewer は不可)
+	// (PATCH /api/comments/{commentId})
+	UpdateComment(c *gin.Context, commentId CommentId)
 	// GetHealth ヘルスチェック(DB への疎通を含む)
 	// (GET /api/health)
 	GetHealth(c *gin.Context)
+	// ListProjects 自分が所属するプロジェクトの一覧
+	// (GET /api/projects)
+	ListProjects(c *gin.Context)
+	// CreateProject プロジェクト作成(作成者は owner になる)
+	// (POST /api/projects)
+	CreateProject(c *gin.Context)
+	// DeleteProject プロジェクト削除(owner のみ。Task・コメントも削除される)
+	// (DELETE /api/projects/{projectId})
+	DeleteProject(c *gin.Context, projectId ProjectId)
+	// GetProject プロジェクト詳細(全ロール)
+	// (GET /api/projects/{projectId})
+	GetProject(c *gin.Context, projectId ProjectId)
+	// UpdateProject プロジェクト更新(owner のみ)
+	// (PATCH /api/projects/{projectId})
+	UpdateProject(c *gin.Context, projectId ProjectId)
+	// ListMembers メンバー一覧(全ロール)
+	// (GET /api/projects/{projectId}/members)
+	ListMembers(c *gin.Context, projectId ProjectId)
+	// AddMember メンバー追加(owner のみ。登録済みユーザーをメールアドレスで指定)
+	// (POST /api/projects/{projectId}/members)
+	AddMember(c *gin.Context, projectId ProjectId)
+	// RemoveMember メンバー削除(owner のみ。最後の owner は削除できない)
+	// (DELETE /api/projects/{projectId}/members/{userId})
+	RemoveMember(c *gin.Context, projectId ProjectId, userId UserId)
+	// UpdateMemberRole ロール変更(owner のみ。最後の owner は降格できない)
+	// (PATCH /api/projects/{projectId}/members/{userId})
+	UpdateMemberRole(c *gin.Context, projectId ProjectId, userId UserId)
+	// ListProjectTasks プロジェクト内の Task 一覧(全ロール。更新日時の降順)
+	// (GET /api/projects/{projectId}/tasks)
+	ListProjectTasks(c *gin.Context, projectId ProjectId, params ListProjectTasksParams)
+	// CreateTask Task 作成(owner / member)
+	// (POST /api/projects/{projectId}/tasks)
+	CreateTask(c *gin.Context, projectId ProjectId)
+	// SearchTasks Task 検索(自分が所属するプロジェクトの Task のみが対象。更新日時の降順)
+	// (GET /api/tasks/search)
+	SearchTasks(c *gin.Context, params SearchTasksParams)
+	// DeleteTask Task 削除(owner のみ)
+	// (DELETE /api/tasks/{taskId})
+	DeleteTask(c *gin.Context, taskId TaskId)
+	// GetTask Task 詳細(全ロール)
+	// (GET /api/tasks/{taskId})
+	GetTask(c *gin.Context, taskId TaskId)
+	// UpdateTask Task 更新(タイトル・説明。owner / member)
+	// (PATCH /api/tasks/{taskId})
+	UpdateTask(c *gin.Context, taskId TaskId)
+	// UpdateTaskAssignee 担当者変更(owner / member。担当者はそのプロジェクトのメンバーのみ。null で解除)
+	// (PATCH /api/tasks/{taskId}/assignee)
+	UpdateTaskAssignee(c *gin.Context, taskId TaskId)
+	// ListComments コメント一覧(全ロール。投稿の古い順)
+	// (GET /api/tasks/{taskId}/comments)
+	ListComments(c *gin.Context, taskId TaskId)
+	// CreateComment コメント投稿(owner / member)
+	// (POST /api/tasks/{taskId}/comments)
+	CreateComment(c *gin.Context, taskId TaskId)
+	// UpdateTaskStatus ステータス変更(owner / member。遷移は自由)
+	// (PATCH /api/tasks/{taskId}/status)
+	UpdateTaskStatus(c *gin.Context, taskId TaskId)
 }
 
 // ServerInterfaceWrapper converts contexts to parameters.
@@ -48,6 +420,82 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(c *gin.Context)
+
+// Login operation middleware
+func (siw *ServerInterfaceWrapper) Login(c *gin.Context) {
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.Login(c)
+}
+
+// Register operation middleware
+func (siw *ServerInterfaceWrapper) Register(c *gin.Context) {
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.Register(c)
+}
+
+// DeleteComment operation middleware
+func (siw *ServerInterfaceWrapper) DeleteComment(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "commentId" -------------
+	var commentId CommentId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "commentId", c.Param("commentId"), &commentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter commentId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.DeleteComment(c, commentId)
+}
+
+// UpdateComment operation middleware
+func (siw *ServerInterfaceWrapper) UpdateComment(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "commentId" -------------
+	var commentId CommentId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "commentId", c.Param("commentId"), &commentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter commentId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.UpdateComment(c, commentId)
+}
 
 // GetHealth operation middleware
 func (siw *ServerInterfaceWrapper) GetHealth(c *gin.Context) {
@@ -60,6 +508,560 @@ func (siw *ServerInterfaceWrapper) GetHealth(c *gin.Context) {
 	}
 
 	siw.Handler.GetHealth(c)
+}
+
+// ListProjects operation middleware
+func (siw *ServerInterfaceWrapper) ListProjects(c *gin.Context) {
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.ListProjects(c)
+}
+
+// CreateProject operation middleware
+func (siw *ServerInterfaceWrapper) CreateProject(c *gin.Context) {
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.CreateProject(c)
+}
+
+// DeleteProject operation middleware
+func (siw *ServerInterfaceWrapper) DeleteProject(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "projectId" -------------
+	var projectId ProjectId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectId", c.Param("projectId"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter projectId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.DeleteProject(c, projectId)
+}
+
+// GetProject operation middleware
+func (siw *ServerInterfaceWrapper) GetProject(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "projectId" -------------
+	var projectId ProjectId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectId", c.Param("projectId"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter projectId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.GetProject(c, projectId)
+}
+
+// UpdateProject operation middleware
+func (siw *ServerInterfaceWrapper) UpdateProject(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "projectId" -------------
+	var projectId ProjectId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectId", c.Param("projectId"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter projectId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.UpdateProject(c, projectId)
+}
+
+// ListMembers operation middleware
+func (siw *ServerInterfaceWrapper) ListMembers(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "projectId" -------------
+	var projectId ProjectId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectId", c.Param("projectId"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter projectId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.ListMembers(c, projectId)
+}
+
+// AddMember operation middleware
+func (siw *ServerInterfaceWrapper) AddMember(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "projectId" -------------
+	var projectId ProjectId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectId", c.Param("projectId"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter projectId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.AddMember(c, projectId)
+}
+
+// RemoveMember operation middleware
+func (siw *ServerInterfaceWrapper) RemoveMember(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "projectId" -------------
+	var projectId ProjectId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectId", c.Param("projectId"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter projectId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Path parameter "userId" -------------
+	var userId UserId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "userId", c.Param("userId"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter userId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.RemoveMember(c, projectId, userId)
+}
+
+// UpdateMemberRole operation middleware
+func (siw *ServerInterfaceWrapper) UpdateMemberRole(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "projectId" -------------
+	var projectId ProjectId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectId", c.Param("projectId"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter projectId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Path parameter "userId" -------------
+	var userId UserId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "userId", c.Param("userId"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter userId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.UpdateMemberRole(c, projectId, userId)
+}
+
+// ListProjectTasks operation middleware
+func (siw *ServerInterfaceWrapper) ListProjectTasks(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "projectId" -------------
+	var projectId ProjectId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectId", c.Param("projectId"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter projectId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListProjectTasksParams
+
+	// ------------- Optional query parameter "q" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "q", c.Request.URL.Query(), &params.Q, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter q: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Optional query parameter "status" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "status", c.Request.URL.Query(), &params.Status, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter status: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Optional query parameter "assigneeId" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "assigneeId", c.Request.URL.Query(), &params.AssigneeId, runtime.BindQueryParameterOptions{Type: "integer", Format: "int64"})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter assigneeId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", c.Request.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter limit: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Optional query parameter "offset" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "offset", c.Request.URL.Query(), &params.Offset, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter offset: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.ListProjectTasks(c, projectId, params)
+}
+
+// CreateTask operation middleware
+func (siw *ServerInterfaceWrapper) CreateTask(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "projectId" -------------
+	var projectId ProjectId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectId", c.Param("projectId"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter projectId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.CreateTask(c, projectId)
+}
+
+// SearchTasks operation middleware
+func (siw *ServerInterfaceWrapper) SearchTasks(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params SearchTasksParams
+
+	// ------------- Optional query parameter "q" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "q", c.Request.URL.Query(), &params.Q, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter q: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Optional query parameter "projectId" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "projectId", c.Request.URL.Query(), &params.ProjectId, runtime.BindQueryParameterOptions{Type: "integer", Format: "int64"})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter projectId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Optional query parameter "status" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "status", c.Request.URL.Query(), &params.Status, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter status: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Optional query parameter "assigneeId" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "assigneeId", c.Request.URL.Query(), &params.AssigneeId, runtime.BindQueryParameterOptions{Type: "integer", Format: "int64"})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter assigneeId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", c.Request.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter limit: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Optional query parameter "offset" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "offset", c.Request.URL.Query(), &params.Offset, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter offset: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.SearchTasks(c, params)
+}
+
+// DeleteTask operation middleware
+func (siw *ServerInterfaceWrapper) DeleteTask(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "taskId" -------------
+	var taskId TaskId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "taskId", c.Param("taskId"), &taskId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter taskId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.DeleteTask(c, taskId)
+}
+
+// GetTask operation middleware
+func (siw *ServerInterfaceWrapper) GetTask(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "taskId" -------------
+	var taskId TaskId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "taskId", c.Param("taskId"), &taskId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter taskId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.GetTask(c, taskId)
+}
+
+// UpdateTask operation middleware
+func (siw *ServerInterfaceWrapper) UpdateTask(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "taskId" -------------
+	var taskId TaskId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "taskId", c.Param("taskId"), &taskId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter taskId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.UpdateTask(c, taskId)
+}
+
+// UpdateTaskAssignee operation middleware
+func (siw *ServerInterfaceWrapper) UpdateTaskAssignee(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "taskId" -------------
+	var taskId TaskId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "taskId", c.Param("taskId"), &taskId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter taskId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.UpdateTaskAssignee(c, taskId)
+}
+
+// ListComments operation middleware
+func (siw *ServerInterfaceWrapper) ListComments(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "taskId" -------------
+	var taskId TaskId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "taskId", c.Param("taskId"), &taskId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter taskId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.ListComments(c, taskId)
+}
+
+// CreateComment operation middleware
+func (siw *ServerInterfaceWrapper) CreateComment(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "taskId" -------------
+	var taskId TaskId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "taskId", c.Param("taskId"), &taskId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter taskId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.CreateComment(c, taskId)
+}
+
+// UpdateTaskStatus operation middleware
+func (siw *ServerInterfaceWrapper) UpdateTaskStatus(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "taskId" -------------
+	var taskId TaskId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "taskId", c.Param("taskId"), &taskId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter taskId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.UpdateTaskStatus(c, taskId)
 }
 
 // GinServerOptions provides options for the Gin server.
@@ -90,4 +1092,183 @@ func RegisterHandlersWithOptions(router gin.IRouter, si ServerInterface, options
 	}
 
 	router.GET(options.BaseURL+"/api/health", wrapper.GetHealth)
+	router.POST(options.BaseURL+"/api/auth/register", wrapper.Register)
+	router.POST(options.BaseURL+"/api/auth/login", wrapper.Login)
+	router.GET(options.BaseURL+"/api/projects", wrapper.ListProjects)
+	router.POST(options.BaseURL+"/api/projects", wrapper.CreateProject)
+	router.DELETE(options.BaseURL+"/api/projects/:projectId", wrapper.DeleteProject)
+	router.GET(options.BaseURL+"/api/projects/:projectId", wrapper.GetProject)
+	router.PATCH(options.BaseURL+"/api/projects/:projectId", wrapper.UpdateProject)
+	router.GET(options.BaseURL+"/api/projects/:projectId/members", wrapper.ListMembers)
+	router.POST(options.BaseURL+"/api/projects/:projectId/members", wrapper.AddMember)
+	router.DELETE(options.BaseURL+"/api/projects/:projectId/members/:userId", wrapper.RemoveMember)
+	router.PATCH(options.BaseURL+"/api/projects/:projectId/members/:userId", wrapper.UpdateMemberRole)
+	router.GET(options.BaseURL+"/api/projects/:projectId/tasks", wrapper.ListProjectTasks)
+	router.POST(options.BaseURL+"/api/projects/:projectId/tasks", wrapper.CreateTask)
+	router.GET(options.BaseURL+"/api/tasks/search", wrapper.SearchTasks)
+	router.DELETE(options.BaseURL+"/api/tasks/:taskId", wrapper.DeleteTask)
+	router.GET(options.BaseURL+"/api/tasks/:taskId", wrapper.GetTask)
+	router.PATCH(options.BaseURL+"/api/tasks/:taskId", wrapper.UpdateTask)
+	router.PATCH(options.BaseURL+"/api/tasks/:taskId/status", wrapper.UpdateTaskStatus)
+	router.PATCH(options.BaseURL+"/api/tasks/:taskId/assignee", wrapper.UpdateTaskAssignee)
+	router.GET(options.BaseURL+"/api/tasks/:taskId/comments", wrapper.ListComments)
+	router.POST(options.BaseURL+"/api/tasks/:taskId/comments", wrapper.CreateComment)
+	router.DELETE(options.BaseURL+"/api/comments/:commentId", wrapper.DeleteComment)
+	router.PATCH(options.BaseURL+"/api/comments/:commentId", wrapper.UpdateComment)
+}
+
+// Base64 encoded, compressed with deflate, json marshaled OpenAPI spec.
+// Stored as a slice of fixed-width chunks rather than one concatenated
+// const string: with thousands of chunks the chained `+` fold is several
+// times slower for the Go compiler than parsing a slice literal.
+var swaggerSpec = []string{
+	"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",
+	"/OBuxsnhyf8GAAD//w==",
+}
+
+// decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,
+// after base64-decoding and flate-decompressing the embedded blob.
+func decodeSpec() ([]byte, error) {
+	encoded := strings.Join(swaggerSpec, "")
+	compressed, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return nil, fmt.Errorf("error base64 decoding spec: %w", err)
+	}
+	zr := flate.NewReader(bytes.NewReader(compressed))
+	var buf bytes.Buffer
+	if _, err := buf.ReadFrom(zr); err != nil {
+		return nil, fmt.Errorf("read flate: %w", err)
+	}
+	if err := zr.Close(); err != nil {
+		return nil, fmt.Errorf("close flate reader: %w", err)
+	}
+
+	return buf.Bytes(), nil
+}
+
+var rawSpec = decodeSpecCached()
+
+// a naive cache of the decoded OpenAPI spec
+func decodeSpecCached() func() ([]byte, error) {
+	data, err := decodeSpec()
+	return func() ([]byte, error) {
+		return data, err
+	}
+}
+
+// Constructs a synthetic filesystem for resolving external references when loading openapi specifications.
+func PathToRawSpec(pathToFile string) map[string]func() ([]byte, error) {
+	res := make(map[string]func() ([]byte, error))
+	if len(pathToFile) > 0 {
+		res[pathToFile] = rawSpec
+	}
+
+	return res
+}
+
+// GetSpec returns the OpenAPI specification corresponding to the generated
+// code in this file. External references in the spec are resolved through
+// PathToRawSpec; externally-referenced files must be embedded in their
+// corresponding Go packages (via the import-mapping feature). URL-based
+// external refs are not supported.
+func GetSpec() (swagger *openapi3.T, err error) {
+	resolvePath := PathToRawSpec("")
+
+	loader := openapi3.NewLoader()
+	loader.IsExternalRefsAllowed = true
+	loader.ReadFromURIFunc = func(loader *openapi3.Loader, url *url.URL) ([]byte, error) {
+		pathToFile := url.String()
+		pathToFile = path.Clean(pathToFile)
+		getSpec, ok := resolvePath[pathToFile]
+		if !ok {
+			err1 := fmt.Errorf("path not found: %s", pathToFile)
+			return nil, err1
+		}
+		return getSpec()
+	}
+	var specData []byte
+	specData, err = rawSpec()
+	if err != nil {
+		return
+	}
+	swagger, err = loader.LoadFromData(specData)
+	if err != nil {
+		return
+	}
+	return
+}
+
+// GetSpecJSON returns the raw JSON bytes of the embedded OpenAPI
+// specification: decompressed but not unmarshaled. External references
+// are not resolved here; the bytes are the spec exactly as embedded by
+// codegen. The result is cached at package init time, so repeated calls
+// are cheap.
+func GetSpecJSON() ([]byte, error) {
+	return rawSpec()
+}
+
+// GetSwagger returns the OpenAPI specification corresponding to the
+// generated code in this file.
+//
+// Deprecated: GetSwagger predates kin-openapi renaming openapi3.Swagger
+// to openapi3.T. Use [GetSpec] instead. This wrapper is retained for
+// backwards compatibility.
+func GetSwagger() (*openapi3.T, error) {
+	return GetSpec()
 }

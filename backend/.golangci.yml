@@ -17,6 +17,7 @@ linters:
           list-mode: strict
           allow:
             - $gostd
+            - taskapp/backend/internal/domain # 外部テストパッケージ(domain_test)が自身を import するため
         service:
           files:
             - "**/internal/service/**"

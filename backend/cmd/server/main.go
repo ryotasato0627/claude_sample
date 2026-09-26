@@ -1,5 +1,5 @@
 // Command server は API サーバーのエントリポイント。
-// 具体実装の生成と注入(composition root)はこのファイルだけで行う。
+// 具体実装の生成と注入(composition root)は app.go だけで行う。
 package main
 
 import (
@@ -10,7 +10,6 @@ import (
 	"os/signal"
 	"syscall"
 
-	"taskapp/backend/internal/handler"
 	"taskapp/backend/internal/repository"
 )
 
@@ -28,14 +27,20 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	jwtSecret, err := mustEnv("JWT_SECRET")
+	if err != nil {
+		return err
+	}
 	db, err := repository.Open(ctx, dsn)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = db.Close() }()
 
-	h := handler.New(db)
-	r := handler.NewRouter(h)
+	r, err := newRouter(db, jwtSecret, 0)
+	if err != nil {
+		return err
+	}
 
 	addr := ":" + getEnv("PORT", "8080")
 	log.Printf("listening on %s", addr)
