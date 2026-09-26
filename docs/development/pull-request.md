@@ -31,6 +31,51 @@ fix: resolve login validation error
 refactor: simplify user repository
 ```
 
+## PR Granularity
+
+### 原則: 1 PR = 1 機能
+
+1つのPRには、利用者(画面の利用者、またはAPIの利用者)から見て完結した機能を1つだけ含める。
+
+* PR単体でマージしても、ビルドとテストが通り、既存の機能を壊さない。
+* PR単体で、要件(`docs/spec/requirements.md`)と照らして動作を確認できる。
+* レイヤー(OpenAPI → domain → service → repository → handler など)の区切りは、PRではなくコミットで表現する(`.claude/skills/commit-strategy/SKILL.md`)。
+
+### サイズの目安
+
+変更行数(追加 + 削除)は **400行程度** を目安とする。
+
+以下は数えない。
+
+* 生成ファイル(`*.gen.go`、`*.gen.ts`、`sqlcgen/`)
+* lock ファイル(`package-lock.json`、`go.sum`)
+
+テストコードは数える。
+
+```bash
+git diff --shortstat develop...HEAD -- . \
+  ':(exclude)*.gen.go' ':(exclude)*.gen.ts' ':(exclude)**/sqlcgen/**' \
+  ':(exclude)package-lock.json' ':(exclude)go.sum'
+```
+
+目安を超える場合は、分割を検討する。分割しない場合は、PR本文の「備考」にその理由を書く。
+
+### 分割の基準
+
+* 機能が大きい場合は、単体で動作を確認できる単位に分ける(例: 一覧 → 作成 → 編集・削除)。
+* 以下は、機能のPRとは別のPRにする。
+  * 機能と無関係なリファクタリング
+  * 既存の依存ライブラリの更新
+  * CI・開発環境の設定変更
+* 機能に付随する変更(その機能のテスト、要件ドキュメントの実装状況の更新など)は、同じPRに含める。
+* 単独では使われない変更(例: ルーティングや認証状態の管理といった共通部品、依存ライブラリの追加)だけのPRは作らない。それを最初に使う機能と同じPRにする。
+
+### 依存するPR
+
+* 1 PR = 1 `feature/*` ブランチとする。
+* 前のPRに依存する場合は、前のPRが `develop` にマージされてから、次のブランチを `develop` から作成する。
+* 依存関係がある場合は、PR本文の「備考」に依存先のPRを書く。
+
 ## Review Requirements
 
 PRは以下を満たしてからマージする。
