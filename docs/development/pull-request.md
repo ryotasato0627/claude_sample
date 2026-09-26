@@ -55,7 +55,7 @@ refactor: simplify user repository
 ```bash
 git diff --shortstat develop...HEAD -- . \
   ':(exclude)*.gen.go' ':(exclude)*.gen.ts' ':(exclude)**/sqlcgen/**' \
-  ':(exclude)package-lock.json' ':(exclude)go.sum'
+  ':(exclude)**/package-lock.json' ':(exclude)**/go.sum'
 ```
 
 目安を超える場合は、分割を検討する。分割しない場合は、PR本文の「備考」にその理由を書く。
