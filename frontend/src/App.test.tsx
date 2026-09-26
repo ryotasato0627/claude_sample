@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, useLocation } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "./App";
@@ -12,15 +12,22 @@ vi.mock("./api/client", () => ({ api: { GET: vi.fn(), POST: vi.fn() } }));
 const user = { id: 1, email: "alice@example.com", name: "Alice", createdAt: "2026-01-01T00:00:00Z" };
 const expiresAt = "2999-01-01T00:00:00Z";
 
+function CurrentLocation() {
+  const location = useLocation();
+  return <div data-testid="location">{location.pathname + location.search}</div>;
+}
+
 function renderApp(path = "/") {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={[path]}>
         <App />
+        <CurrentLocation />
       </MemoryRouter>
     </QueryClientProvider>,
   );
+  return { queryClient };
 }
 
 function submitLogin() {
@@ -53,6 +60,32 @@ describe("認証", () => {
       body: { email: "alice@example.com", password: "password123" },
     });
     expect(sessionStore.get()).toEqual({ token: "jwt", expiresAt, user });
+  });
+
+  it("ログインすると、リダイレクトされる前の画面に戻る", async () => {
+    vi.mocked(api.POST).mockResolvedValue({
+      data: { token: "jwt", expiresAt, user },
+      response: { ok: true, status: 200 },
+    } as never);
+    renderApp("/?tab=mine");
+    expect(await screen.findByTestId("location")).toHaveTextContent(/^\/login$/);
+    submitLogin();
+
+    expect(await screen.findByRole("heading", { name: "ようこそ、Alice さん" })).toBeInTheDocument();
+    expect(screen.getByTestId("location")).toHaveTextContent(/^\/\?tab=mine$/);
+  });
+
+  it("ログインすると、前のユーザーのキャッシュを消す", async () => {
+    vi.mocked(api.POST).mockResolvedValue({
+      data: { token: "jwt", expiresAt, user },
+      response: { ok: true, status: 200 },
+    } as never);
+    const { queryClient } = renderApp("/login");
+    queryClient.setQueryData(["projects"], ["前のユーザーのデータ"]);
+    submitLogin();
+
+    expect(await screen.findByRole("heading", { name: "ようこそ、Alice さん" })).toBeInTheDocument();
+    expect(queryClient.getQueryData(["projects"])).toBeUndefined();
   });
 
   it("認証に失敗するとエラーを表示する", async () => {
@@ -94,6 +127,16 @@ describe("認証", () => {
 
     expect(await screen.findByRole("heading", { name: "ログイン" })).toBeInTheDocument();
     expect(sessionStore.get()).toBeNull();
+  });
+
+  it("ログアウトすると、キャッシュを消す", async () => {
+    sessionStore.set({ token: "jwt", expiresAt, user });
+    const { queryClient } = renderApp("/");
+    queryClient.setQueryData(["projects"], ["Alice のデータ"]);
+    fireEvent.click(await screen.findByRole("button", { name: "ログアウト" }));
+
+    expect(await screen.findByRole("heading", { name: "ログイン" })).toBeInTheDocument();
+    expect(queryClient.getQueryData(["projects"])).toBeUndefined();
   });
 });
 
