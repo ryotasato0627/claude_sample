@@ -17,6 +17,7 @@ linters:
           list-mode: strict
           allow:
             - $gostd
+            - taskapp/backend/internal/domain # 外部テストパッケージ(domain_test)が自身を import するため
         service:
           files:
             - "**/internal/service/**"
@@ -31,6 +32,12 @@ linters:
               desc: service は gin に依存しない
             - pkg: database/sql
               desc: service は DB に直接依存しない
+            - pkg: github.com/jackc/pgx
+              desc: service は DB ドライバに直接依存しない
+            - pkg: golang.org/x/crypto
+              desc: パスワードハッシュは port(PasswordHasher)経由で使う。service から直接呼ばない
+            - pkg: github.com/golang-jwt/jwt
+              desc: JWT は port(TokenIssuer / TokenVerifier)経由で使う。service から直接呼ばない
         handler:
           files:
             - "**/internal/handler/**"
@@ -39,6 +46,8 @@ linters:
               desc: handler は repository に依存しない。service の interface を使う
             - pkg: taskapp/backend/internal/infra
               desc: handler は infra に依存しない
+            - pkg: taskapp/backend/internal/service
+              desc: handler は service の具体型ではなく、自パッケージ(deps.go)で定義した interface に依存する
             - pkg: database/sql
               desc: handler は DB に直接依存しない
         repository:

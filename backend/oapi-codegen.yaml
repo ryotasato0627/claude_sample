@@ -4,3 +4,5 @@ output: internal/handler/openapi/api.gen.go
 generate:
   models: true
   gin-server: true
+  # 認証の要否がコード(publicPaths)と仕様でずれていないことを、テストで突き合わせるために埋め込む
+  embedded-spec: true

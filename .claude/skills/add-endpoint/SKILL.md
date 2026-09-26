@@ -29,13 +29,16 @@ docker compose run --rm sqlc generate        # SQL を追加した場合
 make generate                                # oapi-codegen / openapi-typescript
 ```
 
+* 認証が不要なエンドポイントは `security: []` を付け、`backend/internal/handler/http.go` の `publicPaths` にも追加する(両者の一致を `spec_test.go` が検査する)
+* 入力の形式エラーを 422 にしたい項目(例: メールアドレス)には `format` を付けない。付けると生成コードのデコード時点で 400 になる。形式は service で検証する
+
 ### 3. 内側から順に実装する(依存の向きを守る)
 
 1. **domain**: 必要ならエンティティ・Policy(権限判定)を追加。標準ライブラリのみ依存
 2. **service**: ユースケースを追加し、必要な port(interface)を **service パッケージ内で定義**する。権限チェックはここ
 3. **repository**: port を実装。`db/queries/*.sql` に sqlc クエリを追加(DB 変更が必要なら `add-migration` Skill)。sqlc の型を `domain` に変換して返す
 4. **handler**: gin のハンドラ。入力の検証・変換のみ行い、`service` は自パッケージ定義の interface 越しに呼ぶ。`*gin.Context` を渡さない
-5. **cmd/server/main.go**: 新しい依存があればここで生成・注入する(他で組み立てない)
+5. **cmd/server/app.go**(`newRouter`): 新しい依存があればここで生成・注入する(他で組み立てない)
 
 ### 4. テストを書く(`test-writer` Agent に任せてもよい)
 
@@ -59,6 +62,8 @@ Frontend が絡む場合は生成した型を使い、`frontend-dev` Agent の�
 
 ## Checklist
 
+- [ ] 認証不要なら `security: []` と `publicPaths` の両方に書いた
+- [ ] 未メンバーには 404、権限不足には 403 を返している
 - [ ] OpenAPI を先に更新し、生成物を再生成した(手編集なし)
 - [ ] 権限が権限マトリクスと一致している(service 内で判定)
 - [ ] 他プロジェクトのリソースを ID 指定で操作できない

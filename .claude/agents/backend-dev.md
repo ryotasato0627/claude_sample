@@ -79,7 +79,7 @@ cmd/server (composition root)
 3. **`service` は具体実装を import しない。** 禁止: `repository`, `infra`, `handler`, `github.com/gin-gonic/gin`, `database/sql`, sqlc の生成コード。
 4. **`handler` は gin に閉じる。** `*gin.Context` を `service` 以下に渡さない。`handler` は `service` の具体型ではなく、自パッケージで定義した小さな interface に依存する。
 5. **外部要素はすべて port(interface)経由。** 時刻(Clock)、パスワードハッシュ、JWT 発行・検証、ID 生成など。`time.Now()` や bcrypt / jwt ライブラリを service から直接呼ばない。
-6. **組み立ては `cmd/server/main.go`(composition root)だけで行う。** 具体実装の生成と注入はここだけ。`init()`、パッケージレベルのグローバル変数、シングルトンで依存を持たない。
+6. **組み立ては `cmd/server/app.go`(composition root)だけで行う。** 具体実装の生成と注入はここだけ。`init()`、パッケージレベルのグローバル変数、シングルトンで依存を持たない。
 7. **sqlc の生成型を `repository` の外に漏らさない。** `repository` 内で `domain` のエンティティへ変換して返す。
 8. **権限チェックは `service`(domain の Policy 利用)で行う。** handler や repository に散在させない。権限マトリクスは `docs/spec/requirements.md` に従う。
 9. コンストラクタで依存を受け取る(`NewXxxService(repo ProjectRepository, ...)`)。「interface を受け取り、具体的な struct を返す」。
