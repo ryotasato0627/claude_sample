@@ -44,9 +44,11 @@ PR の分割は `docs/development/pull-request.md` の「PR Granularity」、コ
 
 ### #1 ユーザー登録・ログイン
 
-1. `feat: ルーティングと認証状態の管理を追加` — `react-router` と Pico CSS の追加、`auth/`(トークンと user の保存、未ログイン時のリダイレクト)、`App.tsx` の書き換え。既存の `App.test.tsx` もここで直す
-2. `feat: ユーザー登録・ログイン画面を追加` — `pages/Login.tsx`、`pages/Register.tsx`、`api/errors.ts`(422・409 を表示用に変換)とテスト
+1. `feat: ログイン・ログアウトを追加` — `react-router` と Pico CSS の追加、`auth/`(トークンと user の保存、未ログイン時のリダイレクト)、`api/errors.ts`(エラーを表示用に変換)、`pages/Login.tsx`、`App.tsx` の書き換えとテスト。既存の `App.test.tsx` もここで直す
+2. `feat: ユーザー登録画面を追加` — `pages/Register.tsx` とテスト
 3. `docs: 認証画面の実装状況を更新`
+
+当初はルーティングとログイン画面を別コミットにする計画だったが、ログイン画面の無いルーティングは未ログイン時のリダイレクト先が存在せず動作しないため、機能単位(ログイン・ログアウト / 登録)で分けた。
 
 ### #2 プロジェクト一覧・作成
 
@@ -92,7 +94,7 @@ PR の分割は `docs/development/pull-request.md` の「PR Granularity」、コ
 
 | # | 状態 | PR |
 | - | ---- | -- |
-| 1 | 未着手 | - |
+| 1 | レビュー待ち | - |
 | 2 | 未着手 | - |
 | 3 | 未着手 | - |
 | 4 | 未着手 | - |

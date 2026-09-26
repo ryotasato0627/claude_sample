@@ -261,7 +261,9 @@ cmd/server (composition root)
 ## 11. 実装状況
 - 第4章の API はすべて実装済み(Backend)。`domain` / `service` / `handler` / `repository` / `infra` は第7.1章の依存方向に従う(depguard で検査)。
 - テスト: `domain`(権限判定)、`service`(fake 注入。権限マトリクスの全組み合わせ)、`handler`(認証・エラー変換・入力の異常系・OpenAPI との整合)、`repository`(実 DB。一時スキーマで分離)、`cmd/server`(実 DB を使った E2E)。
-- Frontend は、API の型(`src/api/schema.gen.ts`)を生成済み。画面は未実装(ヘルスチェックの表示のみ)。
+- Frontend は、API の型(`src/api/schema.gen.ts`)を生成済み。画面は `docs/development/plans/frontend-screens.md` の計画に沿って実装中。
+  - 実装済み: ユーザー登録、ログイン、ログアウト、未ログイン時のログイン画面へのリダイレクト。
+  - 現在のユーザーを返す API は無いため、ログイン応答の `user` をトークンと一緒に `localStorage` に保存する。401 を受け取ると API クライアント(`src/api/client.ts`)が消す。
 - 並行実行時の整合性(実 DB で並行テスト済み):
   - 最後の owner の降格・削除は、repository が owner の行を `FOR UPDATE` でロックして原子的に判定する(service の事前チェックは早期エラー用)。
   - 担当者の指定は、メンバーの行を `FOR SHARE` でロックしてから更新する。並行するメンバー削除があっても、メンバーでない担当者は残らない。
