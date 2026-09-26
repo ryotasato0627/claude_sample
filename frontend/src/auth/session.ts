@@ -66,6 +66,13 @@ function notify() {
   listeners.forEach((listener) => listener());
 }
 
+// スリープ中はタイマーが進まないことがあるため、画面に戻ったときにも期限を確認する。
+function clearIfExpired() {
+  if (current && isExpired(current)) sessionStore.clear();
+}
+window.addEventListener("focus", clearIfExpired);
+document.addEventListener("visibilitychange", clearIfExpired);
+
 // 他のタブでのログイン・ログアウトを反映する。
 window.addEventListener("storage", (event) => {
   if (event.key !== SESSION_KEY && event.key !== null) return;

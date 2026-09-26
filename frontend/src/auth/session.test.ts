@@ -42,6 +42,23 @@ describe("sessionStore", () => {
     expect(sessionStore.get()).toBeNull();
   });
 
+  it.each([
+    ["画面が表示されたとき", () => document.dispatchEvent(new Event("visibilitychange"))],
+    ["フォーカスが戻ったとき", () => window.dispatchEvent(new Event("focus"))],
+  ])("%sに期限切れなら、セッションを消す(スリープでタイマーが遅れた場合)", async (_, resume) => {
+    vi.useFakeTimers();
+    const sessionStore = await loadStore();
+    sessionStore.set({ ...valid, expiresAt: new Date(Date.now() + 1000).toISOString() });
+
+    resume();
+    expect(sessionStore.get()).not.toBeNull();
+
+    // タイマーを進めずに時刻だけ進める(スリープからの復帰を再現する)。
+    vi.setSystemTime(Date.now() + 1000);
+    resume();
+    expect(sessionStore.get()).toBeNull();
+  });
+
   it("他のタブでのログイン・ログアウトを反映する", async () => {
     const sessionStore = await loadStore();
     const listener = vi.fn();
