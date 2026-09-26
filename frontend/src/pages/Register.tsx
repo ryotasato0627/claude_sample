@@ -1,28 +1,24 @@
-import { useMutation } from "@tanstack/react-query";
 import type { FormEvent } from "react";
 import { Link, useNavigate } from "react-router";
 
-import { api } from "../api/client";
-import { errorMessage, unwrap } from "../api/errors";
-import type { components } from "../api/schema.gen";
-
-type RegisterRequest = components["schemas"]["RegisterRequest"];
+import { useRegister } from "../api/auth";
+import { errorMessage } from "../api/errors";
 
 export function Register() {
   const navigate = useNavigate();
-  const register = useMutation({
-    mutationFn: (body: RegisterRequest) => unwrap(api.POST("/api/auth/register", { body })),
-    onSuccess: () => navigate("/login", { state: { registered: true } }),
-  });
+  const register = useRegister();
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    register.mutate({
-      name: String(form.get("name")),
-      email: String(form.get("email")),
-      password: String(form.get("password")),
-    });
+    register.mutate(
+      {
+        name: String(form.get("name")),
+        email: String(form.get("email")),
+        password: String(form.get("password")),
+      },
+      { onSuccess: () => navigate("/login", { state: { registered: true } }) },
+    );
   };
 
   return (

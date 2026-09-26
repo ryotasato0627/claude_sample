@@ -1,26 +1,13 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { FormEvent } from "react";
 import { Link, useLocation } from "react-router";
 
-import { api } from "../api/client";
-import { errorMessage, unwrap } from "../api/errors";
-import type { components } from "../api/schema.gen";
-import { sessionStore } from "../auth/session";
-
-type LoginRequest = components["schemas"]["LoginRequest"];
+import { useLogin } from "../api/auth";
+import { errorMessage } from "../api/errors";
 
 export function Login() {
   const location = useLocation();
   const registered = typeof location.state === "object" && location.state !== null && "registered" in location.state;
-  const queryClient = useQueryClient();
-  const login = useMutation({
-    mutationFn: (body: LoginRequest) => unwrap(api.POST("/api/auth/login", { body })),
-    // 画面の遷移は GuestOnly が行う。
-    onSuccess: ({ token, expiresAt, user }) => {
-      queryClient.clear();
-      sessionStore.set({ token, expiresAt, user });
-    },
-  });
+  const login = useLogin();
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
