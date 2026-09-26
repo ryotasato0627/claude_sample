@@ -23,6 +23,7 @@ describe("sessionStore", () => {
   it.each([
     ["形が不正な値", JSON.stringify({})],
     ["user が無い値", JSON.stringify({ token: "jwt", expiresAt: valid.expiresAt })],
+    ["user の項目が欠けた値", JSON.stringify({ ...valid, user: { id: 1, name: "Alice" } })],
     ["壊れた JSON", "{"],
     ["期限切れの値", JSON.stringify({ ...valid, expiresAt: "2000-01-01T00:00:00Z" })],
   ])("%sは破棄する", async (_, raw) => {

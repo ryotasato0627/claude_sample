@@ -27,8 +27,12 @@ function isSession(value: unknown): value is Session {
     value.user !== null &&
     "id" in value.user &&
     typeof value.user.id === "number" &&
+    "email" in value.user &&
+    typeof value.user.email === "string" &&
     "name" in value.user &&
-    typeof value.user.name === "string"
+    typeof value.user.name === "string" &&
+    "createdAt" in value.user &&
+    typeof value.user.createdAt === "string"
   );
 }
 
