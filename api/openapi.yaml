@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Task Management API
-  version: 0.2.0
+  version: 0.3.0
   description: |
     タスク管理サンプルアプリの API 仕様。この定義が唯一の正であり、
     Backend(oapi-codegen)と Frontend(openapi-typescript)のコードはここから生成する。
@@ -68,6 +68,8 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "409":
           $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
         "422":
           $ref: "#/components/responses/Unprocessable"
 
@@ -94,6 +96,8 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
 
   # ------------------------------------------------------------ projects
   /api/projects:
@@ -133,6 +137,8 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
         "422":
           $ref: "#/components/responses/Unprocessable"
 
@@ -150,6 +156,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Project"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
@@ -179,6 +187,8 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
         "422":
           $ref: "#/components/responses/Unprocessable"
     delete:
@@ -188,6 +198,8 @@ paths:
       responses:
         "204":
           description: 削除した
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -212,13 +224,15 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/Member"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
     post:
       operationId: addMember
-      summary: メンバー追加(owner のみ。登録済みユーザーをメールアドレスで指定)
+      summary: メンバー追加(owner のみ。登録済みユーザーをメールアドレスで指定。未登録のメールは 422)
       tags: [members]
       requestBody:
         required: true
@@ -243,6 +257,8 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
         "422":
           $ref: "#/components/responses/Unprocessable"
 
@@ -277,6 +293,8 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
         "422":
           $ref: "#/components/responses/Unprocessable"
     delete:
@@ -286,6 +304,8 @@ paths:
       responses:
         "204":
           description: 削除した
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -322,6 +342,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
     post:
       operationId: createTask
       summary: Task 作成(owner / member)
@@ -347,6 +369,8 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
         "422":
           $ref: "#/components/responses/Unprocessable"
 
@@ -378,6 +402,8 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
 
   /api/tasks/{taskId}:
     parameters:
@@ -393,6 +419,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Task"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
@@ -422,6 +450,8 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
         "422":
           $ref: "#/components/responses/Unprocessable"
     delete:
@@ -431,6 +461,8 @@ paths:
       responses:
         "204":
           description: 削除した
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -466,6 +498,8 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
         "422":
           $ref: "#/components/responses/Unprocessable"
 
@@ -497,6 +531,8 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
         "422":
           $ref: "#/components/responses/Unprocessable"
 
@@ -517,6 +553,8 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/Comment"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
@@ -546,6 +584,8 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
         "422":
           $ref: "#/components/responses/Unprocessable"
 
@@ -577,6 +617,8 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
         "422":
           $ref: "#/components/responses/Unprocessable"
     delete:
@@ -586,6 +628,8 @@ paths:
       responses:
         "204":
           description: 削除した
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -666,6 +710,7 @@ components:
       schema:
         type: integer
         minimum: 0
+        maximum: 2147483647
         default: 0
 
   responses:
@@ -689,6 +734,12 @@ components:
             $ref: "#/components/schemas/Error"
     NotFound:
       description: 存在しない、またはメンバーではないプロジェクトのリソース
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    PayloadTooLarge:
+      description: リクエストボディが大きすぎる(1MiB 超)
       content:
         application/json:
           schema:
@@ -945,6 +996,7 @@ components:
           type: integer
           format: int64
           nullable: true
+          description: 担当者のユーザー ID。null で解除。**省略は 422**(黙って担当が外れないようにするため)
 
     Comment:
       type: object

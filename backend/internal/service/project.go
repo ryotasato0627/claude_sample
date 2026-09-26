@@ -49,27 +49,21 @@ func (s *ProjectService) Get(ctx context.Context, actorID, projectID int64) (dom
 	return domain.ProjectWithRole{Project: p, Role: role}, nil
 }
 
-// Update は指定された項目(nil でないもの)だけを更新する。
+// Update は指定された項目(nil でないもの)だけを更新する。更新は repository 側で項目単位に行う。
 func (s *ProjectService) Update(ctx context.Context, actorID, projectID int64, name, description *string) (domain.ProjectWithRole, error) {
 	role, err := authorize(ctx, s.projects, projectID, actorID, domain.ActionManageProject)
 	if err != nil {
 		return domain.ProjectWithRole{}, err
 	}
-	current, err := s.projects.Get(ctx, projectID)
+	name, err = requiredTextPtr("name", name, maxNameLen)
 	if err != nil {
 		return domain.ProjectWithRole{}, err
 	}
-	if name != nil {
-		if current.Name, err = requiredText("name", *name, maxNameLen); err != nil {
-			return domain.ProjectWithRole{}, err
-		}
+	description, err = optionalTextPtr("description", description, maxProjectDescLen)
+	if err != nil {
+		return domain.ProjectWithRole{}, err
 	}
-	if description != nil {
-		if current.Description, err = optionalText("description", *description, maxProjectDescLen); err != nil {
-			return domain.ProjectWithRole{}, err
-		}
-	}
-	p, err := s.projects.Update(ctx, projectID, current.Name, current.Description)
+	p, err := s.projects.Update(ctx, projectID, name, description)
 	if err != nil {
 		return domain.ProjectWithRole{}, err
 	}
@@ -158,9 +152,9 @@ func (s *ProjectService) RemoveMember(ctx context.Context, actorID, projectID, t
 	return s.projects.RemoveMember(ctx, projectID, targetUserID)
 }
 
-// ensureOtherOwnerExists は、対象の owner を除いても owner が残ることを確認する。
-// 確認と更新は別々の操作のため、同時に複数の owner を降格すると owner が 0 人になり得る
-// (このサンプルでは許容している。厳密にするなら repository 側でロックを取る)。
+// ensureOtherOwnerExists は、対象の owner を除いても owner が残ることを確認する(早期エラー用)。
+// 確認と更新は別々の操作のため、並行するリクエストに対する最終的な防衛線は repository 側にある
+// (UpdateMemberRole / RemoveMember が owner の行をロックして、原子的に判定する)。
 func (s *ProjectService) ensureOtherOwnerExists(ctx context.Context, projectID int64) error {
 	n, err := s.projects.CountOwners(ctx, projectID)
 	if err != nil {

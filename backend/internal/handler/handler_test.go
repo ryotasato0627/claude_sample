@@ -80,6 +80,7 @@ type fakeTasks struct {
 	desc      *string
 	assignee  *int64
 	called    bool
+	updated   bool // UpdateAssignee が呼ばれたか
 }
 
 func (f *fakeTasks) Search(_ context.Context, _ int64, flt domain.TaskFilter) ([]domain.Task, int, error) {
@@ -98,7 +99,7 @@ func (f *fakeTasks) Update(_ context.Context, _, id int64, title, desc *string) 
 }
 
 func (f *fakeTasks) UpdateAssignee(_ context.Context, _, id int64, assignee *int64) (domain.Task, error) {
-	f.assignee = assignee
+	f.updated, f.assignee = true, assignee
 	return domain.Task{ID: id, AssigneeID: assignee}, nil
 }
 
@@ -340,11 +341,21 @@ func TestTaskQueryMapping(t *testing.T) {
 			t.Errorf("items = %v, want []", got["items"])
 		}
 	})
-	t.Run("limit 未指定なら既定値が応答に入る", func(t *testing.T) {
+	t.Run("limit 未指定なら既定値を service に渡し、応答にも入る", func(t *testing.T) {
 		rg := newRig()
 		w := rg.do(http.MethodGet, "/api/tasks/search", "", "user-1")
 		if got := decode[map[string]any](t, w); got["limit"] != float64(domain.DefaultPageLimit) {
 			t.Errorf("limit = %v, want %d", got["limit"], domain.DefaultPageLimit)
+		}
+		if rg.tasks.filter.Limit != domain.DefaultPageLimit {
+			t.Errorf("filter.Limit = %d, want %d", rg.tasks.filter.Limit, domain.DefaultPageLimit)
+		}
+	})
+	t.Run("limit=0 は既定値にせず、そのまま service に渡す(service が範囲外として弾く)", func(t *testing.T) {
+		rg := newRig()
+		rg.do(http.MethodGet, "/api/tasks/search?limit=0", "", "user-1")
+		if !rg.tasks.called || rg.tasks.filter.Limit != 0 {
+			t.Errorf("called=%v filter.Limit=%d, want called with Limit 0", rg.tasks.called, rg.tasks.filter.Limit)
 		}
 	})
 	t.Run("/api/tasks/search は /api/tasks/{taskId} と衝突せず、search として扱われる", func(t *testing.T) {
@@ -377,6 +388,29 @@ func TestPartialUpdateSemantics(t *testing.T) {
 		rg.do(http.MethodPatch, "/api/tasks/1", `{"description":""}`, "user-1")
 		if rg.tasks.desc == nil || *rg.tasks.desc != "" || rg.tasks.title != nil {
 			t.Errorf("title=%v desc=%v, want title=nil desc=\"\"", rg.tasks.title, rg.tasks.desc)
+		}
+	})
+	t.Run("assigneeId の省略は 422(null と区別する)。service は呼ばれない", func(t *testing.T) {
+		rg := newRig()
+		for _, body := range []string{`{}`, `{"other":1}`} {
+			w := rg.do(http.MethodPatch, "/api/tasks/1/assignee", body, "user-1")
+			if w.Code != 422 {
+				t.Errorf("body %s: status = %d, want 422", body, w.Code)
+			}
+		}
+		if rg.tasks.updated {
+			t.Error("service must not be called when assigneeId is omitted")
+		}
+	})
+	t.Run("assigneeId が数値でも null でもなければ 400", func(t *testing.T) {
+		rg := newRig()
+		for _, body := range []string{`{"assigneeId":"abc"}`, `{"assigneeId":1.5}`, `{"assigneeId":true}`, `{"assigneeId":[]}`} {
+			if w := rg.do(http.MethodPatch, "/api/tasks/1/assignee", body, "user-1"); w.Code != 400 {
+				t.Errorf("body %s: status = %d, want 400", body, w.Code)
+			}
+		}
+		if rg.tasks.updated {
+			t.Error("service must not be called for an invalid assigneeId")
 		}
 	})
 	t.Run("assigneeId: 数値で指定、null で解除", func(t *testing.T) {

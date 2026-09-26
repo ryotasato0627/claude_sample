@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"strings"
 
 	"taskapp/backend/internal/domain"
@@ -13,10 +14,11 @@ import (
 var _ service.TaskRepository = (*TaskRepo)(nil)
 
 type TaskRepo struct {
-	q *sqlcgen.Queries
+	db *sql.DB
+	q  *sqlcgen.Queries
 }
 
-func NewTaskRepo(db *sql.DB) *TaskRepo { return &TaskRepo{q: sqlcgen.New(db)} }
+func NewTaskRepo(db *sql.DB) *TaskRepo { return &TaskRepo{db: db, q: sqlcgen.New(db)} }
 
 func (r *TaskRepo) Create(ctx context.Context, projectID int64, title, description string, createdBy int64) (domain.Task, error) {
 	t, err := r.q.CreateTask(ctx, sqlcgen.CreateTaskParams{ProjectID: projectID, Title: title, Description: description, CreatedBy: createdBy})
@@ -34,8 +36,9 @@ func (r *TaskRepo) Get(ctx context.Context, id int64) (domain.Task, error) {
 	return toTask(t), nil
 }
 
-func (r *TaskRepo) UpdateContent(ctx context.Context, id int64, title, description string) (domain.Task, error) {
-	t, err := r.q.UpdateTaskContent(ctx, sqlcgen.UpdateTaskContentParams{ID: id, Title: title, Description: description})
+// UpdateContent は nil でない項目だけを更新する。
+func (r *TaskRepo) UpdateContent(ctx context.Context, id int64, title, description *string) (domain.Task, error) {
+	t, err := r.q.UpdateTaskContent(ctx, sqlcgen.UpdateTaskContentParams{ID: id, Title: nullString(title), Description: nullString(description)})
 	if err != nil {
 		return domain.Task{}, mapErr(err)
 	}
@@ -50,12 +53,32 @@ func (r *TaskRepo) UpdateStatus(ctx context.Context, id int64, status domain.Tas
 	return toTask(t), nil
 }
 
+// UpdateAssignee は担当者を変更する(nil で解除)。担当者はそのプロジェクトのメンバーでなければならない。
+// メンバーの行を FOR SHARE でロックしてから更新するので、確認と更新の間にそのメンバーが外されることはない
+// (並行する RemoveMember は、このトランザクションが終わるまで待ち、その後で担当を解除する)。
 func (r *TaskRepo) UpdateAssignee(ctx context.Context, id int64, assigneeID *int64) (domain.Task, error) {
-	t, err := r.q.UpdateTaskAssignee(ctx, sqlcgen.UpdateTaskAssigneeParams{ID: id, AssigneeID: nullInt64(assigneeID)})
+	var updated sqlcgen.Task
+	err := inTx(ctx, r.db, func(q *sqlcgen.Queries) error {
+		current, err := q.GetTask(ctx, id)
+		if err != nil {
+			return err
+		}
+		if assigneeID != nil {
+			_, err := q.LockProjectMember(ctx, sqlcgen.LockProjectMemberParams{ProjectID: current.ProjectID, UserID: *assigneeID})
+			if errors.Is(err, sql.ErrNoRows) {
+				return domain.Invalid("assignee must be a member of the project")
+			}
+			if err != nil {
+				return err
+			}
+		}
+		updated, err = q.UpdateTaskAssignee(ctx, sqlcgen.UpdateTaskAssigneeParams{ID: id, AssigneeID: nullInt64(assigneeID)})
+		return err
+	})
 	if err != nil {
 		return domain.Task{}, mapErr(err)
 	}
-	return toTask(t), nil
+	return toTask(updated), nil
 }
 
 func (r *TaskRepo) Delete(ctx context.Context, id int64) error {
@@ -64,6 +87,11 @@ func (r *TaskRepo) Delete(ctx context.Context, id int64) error {
 
 // Search は f.UserID が所属するプロジェクトの Task のみを、更新日時の降順で返す。
 func (r *TaskRepo) Search(ctx context.Context, f domain.TaskFilter) ([]domain.Task, int, error) {
+	// DB の LIMIT / OFFSET は int32 で渡す。範囲外を黙って切り詰めないよう、変換前に検査する
+	// (通常は service が検証済みなので、ここに来るのは呼び出し側のバグ)。
+	if f.Limit < 1 || f.Limit > domain.MaxPageLimit || f.Offset < 0 || f.Offset > domain.MaxPageOffset {
+		return nil, 0, domain.Invalid("limit or offset is out of range")
+	}
 	var status *string
 	if f.Status != nil {
 		s := string(*f.Status)

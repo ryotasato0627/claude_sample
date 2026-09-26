@@ -14,10 +14,16 @@ type AuthService struct {
 	hasher   PasswordHasher
 	issuer   TokenIssuer
 	verifier TokenVerifier
+
+	// dummyHash は、存在しないメールでのログイン時にも同じ計算コストの比較を行うためのハッシュ。
+	// (メールの有無を応答時間の差から推測されないようにする)
+	dummyHash string
 }
 
 func NewAuthService(users UserRepository, hasher PasswordHasher, issuer TokenIssuer, verifier TokenVerifier) *AuthService {
-	return &AuthService{users: users, hasher: hasher, issuer: issuer, verifier: verifier}
+	// ハッシュ化に失敗した場合は空になり、比較は即座に失敗する(応答時間の均一化が効かないだけで、認証結果には影響しない)
+	dummy, _ := hasher.Hash("timing-equalization-dummy-password")
+	return &AuthService{users: users, hasher: hasher, issuer: issuer, verifier: verifier, dummyHash: dummy}
 }
 
 // Register はユーザーを登録する。メールアドレスは小文字に正規化して保存する。
@@ -50,6 +56,7 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (domain
 	}
 	user, err := s.users.GetByEmail(ctx, email)
 	if errors.Is(err, domain.ErrNotFound) {
+		_ = s.hasher.Compare(s.dummyHash, password) // メールがあるときと同じ時間をかける
 		return domain.User{}, "", time.Time{}, domain.ErrUnauthorized
 	}
 	if err != nil {

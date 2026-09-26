@@ -73,8 +73,9 @@ func (r *ProjectRepo) ListByUser(ctx context.Context, userID int64) ([]domain.Pr
 	return out, nil
 }
 
-func (r *ProjectRepo) Update(ctx context.Context, id int64, name, description string) (domain.Project, error) {
-	p, err := r.q.UpdateProject(ctx, sqlcgen.UpdateProjectParams{ID: id, Name: name, Description: description})
+// Update は nil でない項目だけを更新する。
+func (r *ProjectRepo) Update(ctx context.Context, id int64, name, description *string) (domain.Project, error) {
+	p, err := r.q.UpdateProject(ctx, sqlcgen.UpdateProjectParams{ID: id, Name: nullString(name), Description: nullString(description)})
 	if err != nil {
 		return domain.Project{}, mapErr(err)
 	}
@@ -117,13 +118,26 @@ func (r *ProjectRepo) AddMember(ctx context.Context, projectID, userID int64, ro
 	return mapErr(r.q.AddProjectMember(ctx, sqlcgen.AddProjectMemberParams{ProjectID: projectID, UserID: userID, Role: string(role)}))
 }
 
+// UpdateMemberRole はロールを変更する。最後の owner を降格しようとすると domain.ErrLastOwner を返す。
+// owner の行をロックして判定するので、並行する別の降格・削除があっても owner が 0 人にならない。
 func (r *ProjectRepo) UpdateMemberRole(ctx context.Context, projectID, userID int64, role domain.Role) error {
-	return requireAffected(r.q.UpdateProjectMemberRole(ctx, sqlcgen.UpdateProjectMemberRoleParams{ProjectID: projectID, UserID: userID, Role: string(role)}))
+	return inTx(ctx, r.db, func(q *sqlcgen.Queries) error {
+		if role != domain.RoleOwner {
+			if err := guardLastOwner(ctx, q, projectID, userID); err != nil {
+				return err
+			}
+		}
+		return requireAffected(q.UpdateProjectMemberRole(ctx, sqlcgen.UpdateProjectMemberRoleParams{ProjectID: projectID, UserID: userID, Role: string(role)}))
+	})
 }
 
 // RemoveMember はメンバーを外し、同じトランザクションで、そのプロジェクトの担当を解除する。
+// 最後の owner を外そうとすると domain.ErrLastOwner を返す(UpdateMemberRole と同様に原子的に判定する)。
 func (r *ProjectRepo) RemoveMember(ctx context.Context, projectID, userID int64) error {
 	return inTx(ctx, r.db, func(q *sqlcgen.Queries) error {
+		if err := guardLastOwner(ctx, q, projectID, userID); err != nil {
+			return err
+		}
 		if err := requireAffected(q.RemoveProjectMember(ctx, sqlcgen.RemoveProjectMemberParams{ProjectID: projectID, UserID: userID})); err != nil {
 			return err
 		}
@@ -132,6 +146,20 @@ func (r *ProjectRepo) RemoveMember(ctx context.Context, projectID, userID int64)
 			AssigneeID: sql.NullInt64{Int64: userID, Valid: true},
 		}))
 	})
+}
+
+// guardLastOwner は、userID が唯一の owner であれば ErrLastOwner を返す。
+// owner の行を FOR UPDATE でロックする(user_id 順)ため、同じプロジェクトの別の降格・削除は、
+// このトランザクションが終わるまで待たされ、コミット後の状態で判定し直す。
+func guardLastOwner(ctx context.Context, q *sqlcgen.Queries, projectID, userID int64) error {
+	owners, err := q.LockProjectOwners(ctx, projectID)
+	if err != nil {
+		return mapErr(err)
+	}
+	if len(owners) == 1 && owners[0] == userID {
+		return domain.ErrLastOwner
+	}
+	return nil
 }
 
 func (r *ProjectRepo) CountOwners(ctx context.Context, projectID int64) (int, error) {

@@ -66,6 +66,8 @@ type Task struct {
 const (
 	DefaultPageLimit = 20
 	MaxPageLimit     = 100
+	// MaxPageOffset は offset の上限。DB の OFFSET に渡す際に int32 へ変換するため、その範囲に収める。
+	MaxPageOffset = 1<<31 - 1
 )
 
 // TaskFilter は Task 検索の条件。UserID が所属するプロジェクトの Task のみが対象になる。

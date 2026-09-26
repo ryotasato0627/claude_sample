@@ -19,7 +19,7 @@ const (
 )
 
 // publicPaths は認証を必要としないルート(api/openapi.yaml の `security: []` と一致させる)。
-// それ以外はすべて Bearer トークンが必要。router_test.go が、全ルートについてこの一致を検査する。
+// それ以外はすべて Bearer トークンが必要。spec_test.go が、全ルートについてこの一致を検査する。
 var publicPaths = map[string]bool{
 	"/api/health":        true,
 	"/api/auth/register": true,
@@ -27,9 +27,13 @@ var publicPaths = map[string]bool{
 }
 
 // authMiddleware は、公開ルート以外で Bearer トークンを検証し、ユーザー ID をコンテキストに置く。
-func authMiddleware(a Authenticator) openapi.MiddlewareFunc {
+//
+// gin のグローバルミドルウェアとして登録する。生成コードのミドルウェア(HandlerMiddlewares)は
+// パス・クエリのパラメータ検証の「後」に走るため、そちらに置くと、無認証でも不正なパラメータで
+// 400 が返ってしまう(401 であるべき)。ルートに一致しないリクエスト(FullPath が空)は NoRoute が 404 を返す。
+func authMiddleware(a Authenticator) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if publicPaths[c.FullPath()] {
+		if path := c.FullPath(); path == "" || publicPaths[path] {
 			return
 		}
 		scheme, token, ok := strings.Cut(c.GetHeader("Authorization"), " ")
@@ -144,8 +148,11 @@ func mapSlice[S, T any](in []S, f func(S) T) []T {
 }
 
 // taskFilter は検索系のクエリパラメータを domain.TaskFilter に変換する。値の検証は service が行う。
+//
+// limit は未指定なら既定値を入れる。明示された 0 などはそのまま渡し、service が範囲外として弾く
+// (未指定と 0 を区別しないと、limit=0 が黙って既定値になってしまう)。
 func taskFilter(q *string, status *openapi.TaskStatus, assigneeID *int64, limit, offset *int) domain.TaskFilter {
-	f := domain.TaskFilter{AssigneeID: assigneeID}
+	f := domain.TaskFilter{AssigneeID: assigneeID, Limit: domain.DefaultPageLimit}
 	if q != nil {
 		f.Query = *q
 	}
@@ -163,9 +170,5 @@ func taskFilter(q *string, status *openapi.TaskStatus, assigneeID *int64, limit,
 }
 
 func toTaskList(tasks []domain.Task, total int, f domain.TaskFilter) openapi.TaskList {
-	limit := f.Limit
-	if limit == 0 {
-		limit = domain.DefaultPageLimit
-	}
-	return openapi.TaskList{Items: mapSlice(tasks, toTask), Total: total, Limit: limit, Offset: f.Offset}
+	return openapi.TaskList{Items: mapSlice(tasks, toTask), Total: total, Limit: f.Limit, Offset: f.Offset}
 }

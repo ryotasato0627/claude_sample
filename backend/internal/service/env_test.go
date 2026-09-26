@@ -86,3 +86,9 @@ func newEnv(t *testing.T) *env {
 	e.memberComment, e.ownerComment = mc.ID, oc.ID
 	return e
 }
+
+// page は、有効なページ指定(limit 既定値・offset 0)のフィルタ。
+// limit の既定値は handler が入れるので、service に渡すフィルタには必ず limit が必要。
+func page() domain.TaskFilter {
+	return domain.TaskFilter{Limit: domain.DefaultPageLimit}
+}

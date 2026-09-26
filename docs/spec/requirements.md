@@ -39,7 +39,7 @@ Claude Code の Skill / Agent を使った開発ワークフローを試すた�
 ## 3. 機能要件
 
 ### 3.1 ユーザー登録・認証
-- 登録項目: メールアドレス(一意)、表示名、パスワード(8文字以上、bcryptでハッシュ化)
+- 登録項目: メールアドレス(一意)、表示名、パスワード(8文字以上・72バイト以下。下限は文字数、上限は bcrypt の入力上限に合わせてバイト数。bcryptでハッシュ化)
 - ログイン成功で JWT(アクセストークン)を返す。有効期限は 24 時間(リフレッシュトークンは対象外)
 - 認証が必要な API は `Authorization: Bearer <token>`
 
@@ -93,16 +93,17 @@ Claude Code の Skill / Agent を使った開発ワークフローを試すた�
 | ステータス | 意味 |
 |---|---|
 | `400` | リクエストの形式が不正(JSON の構文・型、パスやクエリの型) |
-| `401` | 未認証、またはトークンが不正・期限切れ(`WWW-Authenticate: Bearer` を付ける) |
+| `401` | 未認証、またはトークンが不正・期限切れ(`WWW-Authenticate: Bearer` を付ける)。パラメータの形式検証(400)より**先**に判定する |
 | `403` | プロジェクトのメンバーだが、ロールの権限が足りない |
 | `404` | 存在しない、**またはメンバーではないプロジェクトのリソース**(存在を知らせない) |
 | `409` | 競合(メールの重複、既にメンバー、最後の owner の降格・削除) |
 | `413` | リクエストボディが 1MiB 超 |
-| `422` | 入力値の検証エラー(必須・長さ・形式・不正な列挙値・担当者がメンバーでない など) |
+| `422` | 入力値の検証エラー(必須・長さ・形式・不正な列挙値・NUL 文字・担当者がメンバーでない・未登録のメールでのメンバー追加・`assigneeId` の省略 など) |
 
 - エラー本文は `{"code": "...", "message": "..."}`。想定外のエラー(500)は内容を返さない。
-- 部分更新(`PATCH`)は、指定した項目だけを変更する。未指定は変更なし、`description: ""` は空にする、`assigneeId: null` は解除。
-- 検索・一覧の `limit` は 1〜100(既定 20)、`offset` は 0 以上。応答は `{items, total, limit, offset}`(`total` はページネーション前の件数)。
+- 部分更新(`PATCH`)は、指定した項目だけを変更する。未指定は変更なし、`description: ""` は空にする。更新は SQL で項目単位に行い、別項目の同時更新が互いを消さない。
+- `PATCH /api/tasks/{taskId}/assignee` は `assigneeId` が必須。`null` で解除、**省略は 422**(クライアントのバグで、黙って担当が外れないようにする)。
+- 検索・一覧の `limit` は 1〜100(未指定なら 20。`0` は範囲外で 422)、`offset` は 0〜2147483647。応答は `{items, total, limit, offset}`(`total` はページネーション前の件数)。
 - メンバーをプロジェクトから外すと、そのプロジェクトで担当していた Task の担当は解除される。
 - 認証が不要なルートは `publicPaths`(`backend/internal/handler/http.go`)と OpenAPI の `security: []` の両方に書く。両者の一致は `spec_test.go` が検査する。
 
@@ -157,8 +158,8 @@ cmd/server (composition root)
 
 ルール:
 1. interface は使う側のパッケージで定義する(Go の慣習。`repository` 側に interface を置かない)。
-2. `service` は `repository` / `infra` / `handler` / gin / `database/sql` / sqlc 生成コードを import しない。
-3. `*gin.Context` は `handler` の外に渡さない。
+2. `service` は `repository` / `infra` / `handler` / gin / `database/sql` / DB ドライバ(pgx)/ `x/crypto` / jwt / sqlc 生成コードを import しない。
+3. `*gin.Context` は `handler` の外に渡さない。`handler` は `service` を import せず、自パッケージ(`deps.go`)の interface に依存する。
 4. 時刻・ハッシュ・JWT・ID 生成は port 経由。`service` から `time.Now()` やライブラリを直接呼ばない。
 5. `init()`・グローバル変数・シングルトンで依存を保持しない。コンストラクタで注入する(interface を受け取り、具体型を返す)。
 6. 権限チェックは `service`(domain の Policy)に集約する。
@@ -261,9 +262,12 @@ cmd/server (composition root)
 - 第4章の API はすべて実装済み(Backend)。`domain` / `service` / `handler` / `repository` / `infra` は第7.1章の依存方向に従う(depguard で検査)。
 - テスト: `domain`(権限判定)、`service`(fake 注入。権限マトリクスの全組み合わせ)、`handler`(認証・エラー変換・入力の異常系・OpenAPI との整合)、`repository`(実 DB。一時スキーマで分離)、`cmd/server`(実 DB を使った E2E)。
 - Frontend は、API の型(`src/api/schema.gen.ts`)を生成済み。画面は未実装(ヘルスチェックの表示のみ)。
-- 既知の制約:
-  - 「最後の owner は降格・削除できない」は、確認と更新が別々の操作。同時に複数の owner を降格すると owner が 0 人になり得る(厳密にするなら repository でロックを取る)。
-  - ログインの試行回数制限、CORS、トークンの失効(ログアウト)は未対応(スコープ外)。
+- 並行実行時の整合性(実 DB で並行テスト済み):
+  - 最後の owner の降格・削除は、repository が owner の行を `FOR UPDATE` でロックして原子的に判定する(service の事前チェックは早期エラー用)。
+  - 担当者の指定は、メンバーの行を `FOR SHARE` でロックしてから更新する。並行するメンバー削除があっても、メンバーでない担当者は残らない。
+  - 部分更新は SQL の `COALESCE` で項目単位に更新する。
+- ログインは、メールが存在しない場合もダミーのパスワード比較を行い、応答時間の差からメールの有無を推測されにくくしている(完全な対策ではない)。
+- 既知の制約(スコープ外): ログインの試行回数制限、CORS、トークンの失効(ログアウト)。
 
 ## 12. 未決事項
 なし

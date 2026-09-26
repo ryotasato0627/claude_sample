@@ -51,7 +51,7 @@ func operations() []operation {
 		{"メンバー削除", func(e *env, a int64) error { return e.projects.RemoveMember(ctx, a, e.project, e.target) }, ok, forbidden, forbidden, notFound},
 
 		{"Task一覧", func(e *env, a int64) error {
-			_, _, err := e.tasks.ListByProject(ctx, a, e.project, domain.TaskFilter{})
+			_, _, err := e.tasks.ListByProject(ctx, a, e.project, page())
 			return err
 		}, ok, ok, ok, notFound},
 		{"Task作成", func(e *env, a int64) error { _, err := e.tasks.Create(ctx, a, e.project, "new", nil); return err }, ok, ok, forbidden, notFound},
@@ -164,7 +164,7 @@ func TestCannotAccessOtherProjectsResources(t *testing.T) {
 		"プロジェクト閲覧": func(e *env) error { _, err := e.projects.Get(ctx, e.owner, e.otherProject); return err },
 		"プロジェクト削除": func(e *env) error { return e.projects.Delete(ctx, e.owner, e.otherProject) },
 		"Task一覧": func(e *env) error {
-			_, _, err := e.tasks.ListByProject(ctx, e.owner, e.otherProject, domain.TaskFilter{})
+			_, _, err := e.tasks.ListByProject(ctx, e.owner, e.otherProject, page())
 			return err
 		},
 	}

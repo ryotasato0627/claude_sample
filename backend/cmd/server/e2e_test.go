@@ -97,6 +97,9 @@ func TestE2E(t *testing.T) {
 		a.expect(409, "POST", "/api/auth/register", "", map[string]any{"email": "ALICE@example.com", "name": "x", "password": "password123"})
 		a.expect(422, "POST", "/api/auth/register", "", map[string]any{"email": "x@example.com", "name": "x", "password": "short"})
 		a.expect(422, "POST", "/api/auth/register", "", map[string]any{"email": "not-an-email", "name": "x", "password": "password123"})
+		// パスワードの下限は文字数(3 文字・9 バイトは不可)、NUL 文字は 500 ではなく 422
+		a.expect(422, "POST", "/api/auth/register", "", map[string]any{"email": "mb@example.com", "name": "x", "password": "あいう"})
+		a.expect(422, "POST", "/api/auth/register", "", map[string]any{"email": "nul@example.com", "name": "a\u0000b", "password": "password123"})
 		a.expect(401, "POST", "/api/auth/login", "", map[string]any{"email": "alice@example.com", "password": "wrong-password"})
 		a.expect(401, "POST", "/api/auth/login", "", map[string]any{"email": "nobody@example.com", "password": "password123"})
 
@@ -109,9 +112,11 @@ func TestE2E(t *testing.T) {
 		}
 	})
 
-	t.Run("トークンがないと 401", func(t *testing.T) {
+	t.Run("トークンがないと 401(パラメータが不正でも、認証が先)", func(t *testing.T) {
 		a.expect(401, "GET", "/api/projects", "", nil)
 		a.expect(401, "GET", "/api/projects", "garbage", nil)
+		a.expect(401, "GET", "/api/projects/abc", "", nil)
+		a.expect(401, "GET", "/api/tasks/search?limit=abc", "", nil)
 	})
 
 	// ---- プロジェクト・メンバー ----
@@ -202,6 +207,20 @@ func TestE2E(t *testing.T) {
 		}
 		// dave は登録済みだが、このプロジェクトのメンバーではないので担当者にできない
 		a.expect(422, "PATCH", tPath+"/assignee", bob, map[string]any{"assigneeId": daveID})
+		// assigneeId の省略は、null(解除)とは別。黙って担当が外れないよう 422 にする
+		a.expect(200, "PATCH", tPath+"/assignee", bob, map[string]any{"assigneeId": bobID})
+		a.expect(422, "PATCH", tPath+"/assignee", bob, map[string]any{})
+		a.expect(400, "PATCH", tPath+"/assignee", bob, map[string]any{"assigneeId": "abc"})
+		if got := obj(a.expect(200, "GET", tPath, bob, nil)); got["assigneeId"] == nil {
+			t.Error("assignee was cleared by a request that omitted assigneeId")
+		}
+		a.expect(200, "PATCH", tPath+"/assignee", bob, map[string]any{"assigneeId": nil})
+	})
+
+	t.Run("NUL 文字は 500 ではなく 422", func(t *testing.T) {
+		a.expect(422, "POST", "/api/projects", alice, map[string]any{"name": "a\u0000b"})
+		a.expect(422, "PATCH", tPath, bob, map[string]any{"description": "a\u0000b"})
+		a.expect(422, "GET", "/api/tasks/search?q=a%00b", bob, nil)
 	})
 
 	// ---- コメント ----
@@ -255,6 +274,11 @@ func TestE2E(t *testing.T) {
 			t.Errorf("page = %v", page)
 		}
 		a.expect(422, "GET", "/api/tasks/search?limit=101", bob, nil)
+		a.expect(422, "GET", "/api/tasks/search?limit=0", bob, nil) // 0 は既定値にならず、範囲外
+		a.expect(422, "GET", "/api/tasks/search?offset=-1", bob, nil)
+		a.expect(422, "GET", "/api/tasks/search?offset=2147483648", bob, nil) // int32 を超える(以前は 500)
+		a.expect(422, "GET", "/api/tasks/search?offset=4294967296", bob, nil) // 以前は offset 0 として動いていた
+		a.expect(200, "GET", "/api/tasks/search?offset=2147483647", bob, nil)
 		a.expect(422, "GET", "/api/tasks/search?status=blocked", bob, nil)
 
 		// 非メンバーには何も見えない(プロジェクトを指定しても)

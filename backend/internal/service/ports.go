@@ -35,15 +35,19 @@ type ProjectRepository interface {
 	CreateWithOwner(ctx context.Context, name, description string, ownerID int64) (domain.Project, error)
 	Get(ctx context.Context, id int64) (domain.Project, error)
 	ListByUser(ctx context.Context, userID int64) ([]domain.ProjectWithRole, error)
-	Update(ctx context.Context, id int64, name, description string) (domain.Project, error)
+	// Update は nil でない項目だけを更新する(項目単位で更新し、並行する別項目の更新を消さない)。
+	Update(ctx context.Context, id int64, name, description *string) (domain.Project, error)
 	Delete(ctx context.Context, id int64) error
 
 	GetMember(ctx context.Context, projectID, userID int64) (domain.Member, error)
 	ListMembers(ctx context.Context, projectID int64) ([]domain.Member, error)
 	// AddMember は既にメンバーであれば domain.ErrConflict を返す。
 	AddMember(ctx context.Context, projectID, userID int64, role domain.Role) error
+	// UpdateMemberRole は、最後の owner を降格しようとすると domain.ErrLastOwner を返す。
+	// 並行するリクエストがあっても owner が 0 人にならないよう、実装は owner の行をロックして原子的に判定すること。
 	UpdateMemberRole(ctx context.Context, projectID, userID int64, role domain.Role) error
 	// RemoveMember はメンバーを外し、そのプロジェクトで担当していた Task の担当者を解除する。
+	// 最後の owner を外そうとすると domain.ErrLastOwner を返す(UpdateMemberRole と同様に原子的に判定する)。
 	RemoveMember(ctx context.Context, projectID, userID int64) error
 	CountOwners(ctx context.Context, projectID int64) (int, error)
 }
@@ -56,8 +60,11 @@ type TaskRepository interface {
 	TaskGetter
 
 	Create(ctx context.Context, projectID int64, title, description string, createdBy int64) (domain.Task, error)
-	UpdateContent(ctx context.Context, id int64, title, description string) (domain.Task, error)
+	// UpdateContent は nil でない項目だけを更新する(項目単位で更新し、並行する別項目の更新を消さない)。
+	UpdateContent(ctx context.Context, id int64, title, description *string) (domain.Task, error)
 	UpdateStatus(ctx context.Context, id int64, status domain.TaskStatus) (domain.Task, error)
+	// UpdateAssignee は assigneeID が nil なら解除。指定されたユーザーがそのプロジェクトのメンバーでなければ
+	// ValidationError を返す。確認と更新の間にメンバーが外されないよう、実装はメンバーの行をロックすること。
 	UpdateAssignee(ctx context.Context, id int64, assigneeID *int64) (domain.Task, error)
 	Delete(ctx context.Context, id int64) error
 	// Search は f.UserID が所属するプロジェクトの Task のみを、更新日時の降順で返す。

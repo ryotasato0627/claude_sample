@@ -97,12 +97,17 @@ func (f fakeProjects) ListByUser(_ context.Context, userID int64) ([]domain.Proj
 	return out, nil
 }
 
-func (f fakeProjects) Update(_ context.Context, id int64, name, desc string) (domain.Project, error) {
+func (f fakeProjects) Update(_ context.Context, id int64, name, desc *string) (domain.Project, error) {
 	p, ok := f.s.projects[id]
 	if !ok {
 		return domain.Project{}, domain.ErrNotFound
 	}
-	p.Name, p.Description = name, desc
+	if name != nil {
+		p.Name = *name
+	}
+	if desc != nil {
+		p.Description = *desc
+	}
 	f.s.projects[id] = p
 	return p, nil
 }
@@ -191,9 +196,14 @@ func (f fakeTasks) Create(_ context.Context, projectID int64, title, desc string
 	return t, nil
 }
 
-func (f fakeTasks) UpdateContent(_ context.Context, id int64, title, desc string) (domain.Task, error) {
+func (f fakeTasks) UpdateContent(_ context.Context, id int64, title, desc *string) (domain.Task, error) {
 	t := f.s.tasks[id]
-	t.Title, t.Description = title, desc
+	if title != nil {
+		t.Title = *title
+	}
+	if desc != nil {
+		t.Description = *desc
+	}
 	f.s.tasks[id] = t
 	return t, nil
 }
@@ -282,10 +292,12 @@ func (f fakeComments) Delete(_ context.Context, id int64) error {
 
 // ---- infra ports ----
 
-type fakeHasher struct{}
+// fakeHasher は Compare の呼び出し回数を数える(存在しないメールでも比較が走ることの検証用)。
+type fakeHasher struct{ compares int }
 
-func (fakeHasher) Hash(plain string) (string, error) { return "hashed:" + plain, nil }
-func (fakeHasher) Compare(hash, plain string) error {
+func (*fakeHasher) Hash(plain string) (string, error) { return "hashed:" + plain, nil }
+func (h *fakeHasher) Compare(hash, plain string) error {
+	h.compares++
 	if hash != "hashed:"+plain {
 		return errors.New("mismatch")
 	}

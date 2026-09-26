@@ -240,7 +240,7 @@ func TestTaskSearch(t *testing.T) {
 
 	t.Run("actor が所属するプロジェクトの Task のみ返す", func(t *testing.T) {
 		e := newEnv(t)
-		tasks, total, err := e.tasks.Search(ctx, e.owner, domain.TaskFilter{})
+		tasks, total, err := e.tasks.Search(ctx, e.owner, page())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -250,7 +250,9 @@ func TestTaskSearch(t *testing.T) {
 	})
 	t.Run("フィルタの UserID は actor で上書きされる(他人の ID を指定できない)", func(t *testing.T) {
 		e := newEnv(t)
-		if _, _, err := e.tasks.Search(ctx, e.owner, domain.TaskFilter{UserID: e.outsider}); err != nil {
+		f := page()
+		f.UserID = e.outsider
+		if _, _, err := e.tasks.Search(ctx, e.owner, f); err != nil {
 			t.Fatal(err)
 		}
 		if e.s.lastFilter.UserID != e.owner {
@@ -259,35 +261,59 @@ func TestTaskSearch(t *testing.T) {
 	})
 	t.Run("プロジェクト内一覧は、フィルタの ProjectID を上書きする", func(t *testing.T) {
 		e := newEnv(t)
-		if _, _, err := e.tasks.ListByProject(ctx, e.owner, e.project, domain.TaskFilter{ProjectID: &e.otherProject}); err != nil {
+		f := page()
+		f.ProjectID = &e.otherProject
+		if _, _, err := e.tasks.ListByProject(ctx, e.owner, e.project, f); err != nil {
 			t.Fatal(err)
 		}
 		if got := e.s.lastFilter.ProjectID; got == nil || *got != e.project {
 			t.Errorf("filter.ProjectID = %v, want %d", got, e.project)
 		}
 	})
-	t.Run("limit の既定値と検証", func(t *testing.T) {
+	t.Run("limit は 1〜100。0 も範囲外(既定値は呼び出し側が入れる)", func(t *testing.T) {
 		e := newEnv(t)
-		if _, _, err := e.tasks.Search(ctx, e.owner, domain.TaskFilter{}); err != nil || e.s.lastFilter.Limit != 20 {
-			t.Errorf("default limit = %d err=%v, want 20", e.s.lastFilter.Limit, err)
-		}
-		for _, limit := range []int{-1, 101} {
-			if _, _, err := e.tasks.Search(ctx, e.owner, domain.TaskFilter{Limit: limit}); !isValidation(err) {
+		for _, limit := range []int{-1, 0, 101} {
+			f := page()
+			f.Limit = limit
+			if _, _, err := e.tasks.Search(ctx, e.owner, f); !isValidation(err) {
 				t.Errorf("limit %d: err = %v, want ValidationError", limit, err)
 			}
 		}
-		if _, _, err := e.tasks.Search(ctx, e.owner, domain.TaskFilter{Limit: 100}); err != nil {
-			t.Errorf("limit 100 は OK: %v", err)
+		for _, limit := range []int{1, 100} {
+			f := page()
+			f.Limit = limit
+			if _, _, err := e.tasks.Search(ctx, e.owner, f); err != nil {
+				t.Errorf("limit %d は OK: %v", limit, err)
+			}
 		}
 	})
-	t.Run("offset・status・q の検証", func(t *testing.T) {
+	t.Run("offset は 0〜MaxPageOffset(DB の int32 に収まる範囲)", func(t *testing.T) {
+		e := newEnv(t)
+		for _, offset := range []int{-1, domain.MaxPageOffset + 1, 1 << 32} {
+			f := page()
+			f.Offset = offset
+			if _, _, err := e.tasks.Search(ctx, e.owner, f); !isValidation(err) {
+				t.Errorf("offset %d: err = %v, want ValidationError", offset, err)
+			}
+		}
+		for _, offset := range []int{0, domain.MaxPageOffset} {
+			f := page()
+			f.Offset = offset
+			if _, _, err := e.tasks.Search(ctx, e.owner, f); err != nil {
+				t.Errorf("offset %d は OK: %v", offset, err)
+			}
+		}
+	})
+	t.Run("status・q の検証", func(t *testing.T) {
 		e := newEnv(t)
 		bad := domain.TaskStatus("blocked")
-		for name, f := range map[string]domain.TaskFilter{
-			"offset が負":  {Offset: -1},
-			"不正な status": {Status: &bad},
-			"q が長すぎる":    {Query: strings.Repeat("a", 201)},
+		for name, mutate := range map[string]func(*domain.TaskFilter){
+			"不正な status":  func(f *domain.TaskFilter) { f.Status = &bad },
+			"q が長すぎる":     func(f *domain.TaskFilter) { f.Query = strings.Repeat("a", 201) },
+			"q に NUL を含む": func(f *domain.TaskFilter) { f.Query = "a\x00b" },
 		} {
+			f := page()
+			mutate(&f)
 			if _, _, err := e.tasks.Search(ctx, e.owner, f); !isValidation(err) {
 				t.Errorf("%s: err = %v, want ValidationError", name, err)
 			}
@@ -295,13 +321,42 @@ func TestTaskSearch(t *testing.T) {
 	})
 	t.Run("q は前後の空白を除いて渡される", func(t *testing.T) {
 		e := newEnv(t)
-		if _, _, err := e.tasks.Search(ctx, e.owner, domain.TaskFilter{Query: "  abc "}); err != nil {
+		f := page()
+		f.Query = "  abc "
+		if _, _, err := e.tasks.Search(ctx, e.owner, f); err != nil {
 			t.Fatal(err)
 		}
 		if e.s.lastFilter.Query != "abc" {
 			t.Errorf("query = %q, want abc", e.s.lastFilter.Query)
 		}
 	})
+}
+
+// PostgreSQL は文字列に NUL(\x00)を含められず、通すと DB エラー(500)になる。service で 422 にする。
+func TestNULCharactersAreRejected(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t)
+	const nul = "a\x00b"
+
+	checks := map[string]error{
+		"プロジェクト名":      func() error { _, err := e.projects.Create(ctx, e.owner, nul, ""); return err }(),
+		"プロジェクト説明":     func() error { _, err := e.projects.Create(ctx, e.owner, "n", nul); return err }(),
+		"プロジェクト更新(名前)": func() error { _, err := e.projects.Update(ctx, e.owner, e.project, str(nul), nil); return err }(),
+		"Task タイトル":    func() error { _, err := e.tasks.Create(ctx, e.member, e.project, nul, nil); return err }(),
+		"Task 説明":      func() error { _, err := e.tasks.Create(ctx, e.member, e.project, "t", str(nul)); return err }(),
+		"Task 更新(説明)":  func() error { _, err := e.tasks.Update(ctx, e.member, e.task, nil, str(nul)); return err }(),
+		"コメント投稿":       func() error { _, err := e.comments.Create(ctx, e.member, e.task, nul); return err }(),
+		"コメント編集":       func() error { _, err := e.comments.Update(ctx, e.member, e.memberComment, nul); return err }(),
+		"メンバー追加のメール": func() error {
+			_, err := e.projects.AddMember(ctx, e.owner, e.project, "a\x00@example.com", "member")
+			return err
+		}(),
+	}
+	for name, err := range checks {
+		if !isValidation(err) {
+			t.Errorf("%s: err = %v, want ValidationError", name, err)
+		}
+	}
 }
 
 func TestCommentBodyValidation(t *testing.T) {
@@ -339,7 +394,7 @@ func TestNotFound(t *testing.T) {
 		"コメント削除": e.comments.Delete(ctx, e.owner, missing),
 		"プロジェクト": func() error { _, err := e.projects.Get(ctx, e.owner, missing); return err }(),
 		"Task一覧": func() error {
-			_, _, err := e.tasks.ListByProject(ctx, e.owner, missing, domain.TaskFilter{})
+			_, _, err := e.tasks.ListByProject(ctx, e.owner, missing, page())
 			return err
 		}(),
 		"メンバー一覧":  func() error { _, err := e.projects.ListMembers(ctx, e.owner, missing); return err }(),

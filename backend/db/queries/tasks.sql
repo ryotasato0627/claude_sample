@@ -8,10 +8,13 @@ SELECT id, project_id, title, description, status, assignee_id, created_by, crea
 FROM tasks
 WHERE id = $1;
 
+-- 指定された項目(NULL でないもの)だけを更新する。取得→上書きにすると、並行する別項目の更新を消してしまうため。
 -- name: UpdateTaskContent :one
 UPDATE tasks
-SET title = $2, description = $3, updated_at = now()
-WHERE id = $1
+SET title = COALESCE(sqlc.narg('title')::text, title),
+    description = COALESCE(sqlc.narg('description')::text, description),
+    updated_at = now()
+WHERE id = @id
 RETURNING id, project_id, title, description, status, assignee_id, created_by, created_at, updated_at;
 
 -- name: UpdateTaskStatus :one

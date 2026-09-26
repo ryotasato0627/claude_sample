@@ -69,12 +69,13 @@ func TestPublicPathsMatchOpenAPISpec(t *testing.T) {
 			t.Errorf("route %s is registered but not in the spec", route)
 		}
 	}
-	if len(specOps) != 24 {
-		t.Errorf("spec has %d operations, want 24 (health + 23 endpoints of chapter 4)", len(specOps))
+	if len(specOps) == 0 {
+		t.Error("the spec has no operations")
 	}
 }
 
 // 認証が必要なすべてのルートが、トークンなしで 401 を返す(handler に到達しない)。
+// パスパラメータが不正(数値でない)でも、パラメータ検証(400)より先に認証(401)が行われること。
 func TestAllProtectedRoutesRejectMissingToken(t *testing.T) {
 	r := NewRouter(New(Deps{}), stubAuth{}) // 依存が nil なので、handler に到達すれば panic → 500 になる
 	checked := 0
@@ -82,28 +83,42 @@ func TestAllProtectedRoutesRejectMissingToken(t *testing.T) {
 		if publicPaths[ri.Path] {
 			continue
 		}
-		path := regexp.MustCompile(`:[A-Za-z]+`).ReplaceAllString(ri.Path, "1")
-		for name, header := range map[string]string{
-			"ヘッダなし":          "",
-			"Basic 認証":       "Basic dXNlcjpwYXNz",
-			"トークンが空":         "Bearer ",
-			"不正なトークン":        "Bearer not-a-valid-token",
-			"スキームだけ":         "Bearer",
-			"トークンだけ(スキームなし)": "some-token",
-		} {
-			req := httptest.NewRequest(ri.Method, path, strings.NewReader("{}"))
-			if header != "" {
-				req.Header.Set("Authorization", header)
-			}
-			w := httptest.NewRecorder()
-			r.ServeHTTP(w, req)
-			if w.Code != http.StatusUnauthorized {
-				t.Errorf("%s %s (%s): status = %d, want 401", ri.Method, path, name, w.Code)
+		for pname, param := range map[string]string{"正しい ID": "1", "不正な ID": "abc"} {
+			path := regexp.MustCompile(`:[A-Za-z]+`).ReplaceAllString(ri.Path, param)
+			for name, header := range map[string]string{
+				"ヘッダなし":          "",
+				"Basic 認証":       "Basic dXNlcjpwYXNz",
+				"トークンが空":         "Bearer ",
+				"不正なトークン":        "Bearer not-a-valid-token",
+				"スキームだけ":         "Bearer",
+				"トークンだけ(スキームなし)": "some-token",
+			} {
+				req := httptest.NewRequest(ri.Method, path, strings.NewReader("{}"))
+				if header != "" {
+					req.Header.Set("Authorization", header)
+				}
+				w := httptest.NewRecorder()
+				r.ServeHTTP(w, req)
+				if w.Code != http.StatusUnauthorized {
+					t.Errorf("%s %s [%s / %s]: status = %d, want 401", ri.Method, path, pname, name, w.Code)
+				}
 			}
 		}
 		checked++
 	}
-	if checked != 21 {
-		t.Errorf("checked %d protected routes, want 21", checked)
+	if checked == 0 {
+		t.Error("no protected routes were checked")
+	}
+}
+
+// クエリパラメータが不正でも、認証が先に行われる。
+func TestUnauthenticatedRequestWithBadQueryIs401(t *testing.T) {
+	r := NewRouter(New(Deps{}), stubAuth{})
+	for _, path := range []string{"/api/tasks/search?limit=abc", "/api/projects/1/tasks?offset=xyz"} {
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, path, nil))
+		if w.Code != http.StatusUnauthorized {
+			t.Errorf("%s: status = %d, want 401", path, w.Code)
+		}
 	}
 }

@@ -13,6 +13,8 @@ import (
 
 // 実 DB(compose の db サービス)を使うテスト。テストごとに専用スキーマを使う。
 
+func ptr[T any](v T) *T { return &v }
+
 type fixture struct {
 	db       *sql.DB
 	users    *repository.UserRepo
@@ -105,11 +107,11 @@ func TestProjectRepo_CreateListUpdateDelete(t *testing.T) {
 		t.Errorf("ListByUser = %+v err=%v, want only P1 as owner", list, err)
 	}
 
-	up, err := f.projects.Update(ctx, p.ID, "Renamed", "desc")
+	up, err := f.projects.Update(ctx, p.ID, ptr("Renamed"), ptr("desc"))
 	if err != nil || up.Name != "Renamed" || up.Description != "desc" {
 		t.Errorf("Update = %+v err=%v", up, err)
 	}
-	if _, err := f.projects.Update(ctx, 99999, "x", ""); !errors.Is(err, domain.ErrNotFound) {
+	if _, err := f.projects.Update(ctx, 99999, ptr("x"), nil); !errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("update missing: err = %v, want ErrNotFound", err)
 	}
 	if _, err := f.projects.Get(ctx, 99999); !errors.Is(err, domain.ErrNotFound) {
@@ -247,7 +249,7 @@ func TestTaskRepo_CRUD(t *testing.T) {
 		t.Errorf("created = %+v", tk)
 	}
 
-	up, err := f.tasks.UpdateContent(ctx, tk.ID, "New", "New desc")
+	up, err := f.tasks.UpdateContent(ctx, tk.ID, ptr("New"), ptr("New desc"))
 	if err != nil || up.Title != "New" || up.Description != "New desc" || !up.UpdatedAt.After(tk.UpdatedAt) {
 		t.Errorf("UpdateContent = %+v err=%v (updated_at must advance)", up, err)
 	}
@@ -271,7 +273,7 @@ func TestTaskRepo_CRUD(t *testing.T) {
 
 	for name, fn := range map[string]func() error{
 		"Get":            func() error { _, err := f.tasks.Get(ctx, 99999); return err },
-		"UpdateContent":  func() error { _, err := f.tasks.UpdateContent(ctx, 99999, "x", ""); return err },
+		"UpdateContent":  func() error { _, err := f.tasks.UpdateContent(ctx, 99999, ptr("x"), nil); return err },
 		"UpdateStatus":   func() error { _, err := f.tasks.UpdateStatus(ctx, 99999, domain.StatusDone); return err },
 		"UpdateAssignee": func() error { _, err := f.tasks.UpdateAssignee(ctx, 99999, nil); return err },
 		"Delete":         func() error { return f.tasks.Delete(ctx, 99999) },
@@ -403,7 +405,7 @@ func TestTaskRepo_Search(t *testing.T) {
 		}
 	})
 	t.Run("更新すると先頭に来る", func(t *testing.T) {
-		if _, err := f.tasks.UpdateContent(ctx, a1.ID, "Write report v2", "quarterly numbers"); err != nil {
+		if _, err := f.tasks.UpdateContent(ctx, a1.ID, ptr("Write report v2"), ptr("quarterly numbers")); err != nil {
 			t.Fatal(err)
 		}
 		if got, _ := search(t, domain.TaskFilter{UserID: alice.ID}); got[0] != a1.ID {

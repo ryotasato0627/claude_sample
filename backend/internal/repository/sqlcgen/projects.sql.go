@@ -7,6 +7,7 @@ package sqlcgen
 
 import (
 	"context"
+	"database/sql"
 	"time"
 )
 
@@ -229,6 +230,59 @@ func (q *Queries) ListProjectsByUser(ctx context.Context, userID int64) ([]ListP
 	return items, nil
 }
 
+const lockProjectMember = `-- name: LockProjectMember :one
+SELECT user_id
+FROM project_members
+WHERE project_id = $1 AND user_id = $2
+FOR SHARE
+`
+
+type LockProjectMemberParams struct {
+	ProjectID int64
+	UserID    int64
+}
+
+// 担当者にする前に、メンバーの行を共有ロックする。並行するメンバー削除は、この確認が終わるまで待つ。
+func (q *Queries) LockProjectMember(ctx context.Context, arg LockProjectMemberParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, lockProjectMember, arg.ProjectID, arg.UserID)
+	var user_id int64
+	err := row.Scan(&user_id)
+	return user_id, err
+}
+
+const lockProjectOwners = `-- name: LockProjectOwners :many
+SELECT user_id
+FROM project_members
+WHERE project_id = $1 AND role = 'owner'
+ORDER BY user_id
+FOR UPDATE
+`
+
+// owner の降格・削除の判定用。owner の行をロックし、並行する別の降格・削除を待たせる
+// (ロック順を user_id 順に固定して、デッドロックを避ける)。
+func (q *Queries) LockProjectOwners(ctx context.Context, projectID int64) ([]int64, error) {
+	rows, err := q.db.QueryContext(ctx, lockProjectOwners, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var user_id int64
+		if err := rows.Scan(&user_id); err != nil {
+			return nil, err
+		}
+		items = append(items, user_id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const removeProjectMember = `-- name: RemoveProjectMember :execrows
 DELETE FROM project_members
 WHERE project_id = $1 AND user_id = $2
@@ -249,19 +303,21 @@ func (q *Queries) RemoveProjectMember(ctx context.Context, arg RemoveProjectMemb
 
 const updateProject = `-- name: UpdateProject :one
 UPDATE projects
-SET name = $2, description = $3
-WHERE id = $1
+SET name = COALESCE($1::text, name),
+    description = COALESCE($2::text, description)
+WHERE id = $3
 RETURNING id, name, description, created_at
 `
 
 type UpdateProjectParams struct {
+	Name        sql.NullString
+	Description sql.NullString
 	ID          int64
-	Name        string
-	Description string
 }
 
+// 指定された項目(NULL でないもの)だけを更新する。取得→上書きにすると、並行する別項目の更新を消してしまうため。
 func (q *Queries) UpdateProject(ctx context.Context, arg UpdateProjectParams) (Project, error) {
-	row := q.db.QueryRowContext(ctx, updateProject, arg.ID, arg.Name, arg.Description)
+	row := q.db.QueryRowContext(ctx, updateProject, arg.Name, arg.Description, arg.ID)
 	var i Project
 	err := row.Scan(
 		&i.ID,

@@ -232,19 +232,22 @@ func (q *Queries) UpdateTaskAssignee(ctx context.Context, arg UpdateTaskAssignee
 
 const updateTaskContent = `-- name: UpdateTaskContent :one
 UPDATE tasks
-SET title = $2, description = $3, updated_at = now()
-WHERE id = $1
+SET title = COALESCE($1::text, title),
+    description = COALESCE($2::text, description),
+    updated_at = now()
+WHERE id = $3
 RETURNING id, project_id, title, description, status, assignee_id, created_by, created_at, updated_at
 `
 
 type UpdateTaskContentParams struct {
+	Title       sql.NullString
+	Description sql.NullString
 	ID          int64
-	Title       string
-	Description string
 }
 
+// 指定された項目(NULL でないもの)だけを更新する。取得→上書きにすると、並行する別項目の更新を消してしまうため。
 func (q *Queries) UpdateTaskContent(ctx context.Context, arg UpdateTaskContentParams) (Task, error) {
-	row := q.db.QueryRowContext(ctx, updateTaskContent, arg.ID, arg.Title, arg.Description)
+	row := q.db.QueryRowContext(ctx, updateTaskContent, arg.Title, arg.Description, arg.ID)
 	var i Task
 	err := row.Scan(
 		&i.ID,

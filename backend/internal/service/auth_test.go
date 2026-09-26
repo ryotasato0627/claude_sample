@@ -10,9 +10,10 @@ import (
 	"taskapp/backend/internal/service"
 )
 
-func newAuth() (*service.AuthService, *store) {
+func newAuth() (*service.AuthService, *fakeHasher) {
 	s := newStore()
-	return service.NewAuthService(fakeUsers{s}, fakeHasher{}, fakeTokens{}, fakeTokens{}), s
+	h := &fakeHasher{}
+	return service.NewAuthService(fakeUsers{s}, h, fakeTokens{}, fakeTokens{}), h
 }
 
 func isValidation(err error) bool {
@@ -54,6 +55,13 @@ func TestRegister(t *testing.T) {
 		{"表示名が長すぎる", "a@example.com", strings.Repeat("あ", 101), "password123"},
 		{"パスワードが 7 文字", "a@example.com", "A", "1234567"},
 		{"パスワードが 73 バイト", "a@example.com", "A", strings.Repeat("a", 73)},
+		// 下限は「文字数」で数える(バイト数ではない)
+		{"パスワードが 3 文字(9 バイト)", "a@example.com", "A", "あいう"},
+		{"パスワードが 7 文字(21 バイト)", "a@example.com", "A", "あいうえおかき"},
+		// 上限は bcrypt の入力上限に合わせて「バイト数」で数える
+		{"パスワードが 25 文字(75 バイト)", "a@example.com", "A", strings.Repeat("あ", 25)},
+		{"メールに NUL を含む", "a\x00@example.com", "A", "password123"},
+		{"表示名に NUL を含む", "a@example.com", "a\x00b", "password123"},
 	}
 	for _, tt := range invalid {
 		t.Run("入力検証: "+tt.name, func(t *testing.T) {
@@ -64,10 +72,12 @@ func TestRegister(t *testing.T) {
 		})
 	}
 
-	t.Run("パスワードが 8 文字ちょうどは OK", func(t *testing.T) {
-		auth, _ := newAuth()
-		if _, err := auth.Register(ctx, "a@example.com", "A", "12345678"); err != nil {
-			t.Errorf("err = %v", err)
+	t.Run("パスワードが 8 文字ちょうどは OK(マルチバイトでも文字数で数える)", func(t *testing.T) {
+		for _, pw := range []string{"12345678", "あいうえおかきく", strings.Repeat("あ", 24)} { // 8 文字 / 8 文字 / 72 バイト
+			auth, _ := newAuth()
+			if _, err := auth.Register(ctx, "a@example.com", "A", pw); err != nil {
+				t.Errorf("password %q: err = %v", pw, err)
+			}
 		}
 	})
 }
@@ -100,6 +110,25 @@ func TestLogin(t *testing.T) {
 				t.Errorf("err = %v, want ErrUnauthorized", err)
 			}
 		})
+	}
+}
+
+// メールの有無を応答時間の差から推測されないよう、存在しないメールでも(ダミーで)パスワード比較を行う。
+func TestLogin_ComparesPasswordEvenWhenEmailIsUnknown(t *testing.T) {
+	ctx := context.Background()
+	auth, hasher := newAuth()
+	if _, err := auth.Register(ctx, "a@example.com", "A", "password123"); err != nil {
+		t.Fatal(err)
+	}
+
+	for name, email := range map[string]string{"存在するメール(パスワード不一致)": "a@example.com", "存在しないメール": "nobody@example.com"} {
+		before := hasher.compares
+		if _, _, _, err := auth.Login(ctx, email, "wrong-password"); !errors.Is(err, domain.ErrUnauthorized) {
+			t.Fatalf("%s: err = %v, want ErrUnauthorized", name, err)
+		}
+		if got := hasher.compares - before; got != 1 {
+			t.Errorf("%s: Compare called %d times, want exactly 1", name, got)
+		}
 	}
 }
 

@@ -38,22 +38,20 @@ func (s *TaskService) Get(ctx context.Context, actorID, taskID int64) (domain.Ta
 }
 
 // Update は指定された項目(nil でないもの)だけを更新する。
+// 「取得して全項目を上書き」にすると、並行する別項目の更新を消してしまうため、更新は repository 側で項目単位に行う。
 func (s *TaskService) Update(ctx context.Context, actorID, taskID int64, title, description *string) (domain.Task, error) {
-	t, err := s.load(ctx, actorID, taskID, domain.ActionWriteTask)
+	if _, err := s.load(ctx, actorID, taskID, domain.ActionWriteTask); err != nil {
+		return domain.Task{}, err
+	}
+	title, err := requiredTextPtr("title", title, maxTaskTitleLen)
 	if err != nil {
 		return domain.Task{}, err
 	}
-	if title != nil {
-		if t.Title, err = requiredText("title", *title, maxTaskTitleLen); err != nil {
-			return domain.Task{}, err
-		}
+	description, err = optionalTextPtr("description", description, maxTaskDescLen)
+	if err != nil {
+		return domain.Task{}, err
 	}
-	if description != nil {
-		if t.Description, err = optionalText("description", *description, maxTaskDescLen); err != nil {
-			return domain.Task{}, err
-		}
-	}
-	return s.tasks.UpdateContent(ctx, taskID, t.Title, t.Description)
+	return s.tasks.UpdateContent(ctx, taskID, title, description)
 }
 
 func (s *TaskService) UpdateStatus(ctx context.Context, actorID, taskID int64, status string) (domain.Task, error) {
@@ -115,14 +113,12 @@ func (s *TaskService) search(ctx context.Context, actorID int64, f domain.TaskFi
 		}
 		f.Status = &st
 	}
-	if f.Limit == 0 {
-		f.Limit = domain.DefaultPageLimit
-	}
+	// limit の既定値は呼び出し側(handler)が入れる。ここでは 0 も範囲外として扱う
 	if f.Limit < 1 || f.Limit > domain.MaxPageLimit {
 		return nil, 0, domain.Invalid("limit must be between 1 and %d", domain.MaxPageLimit)
 	}
-	if f.Offset < 0 {
-		return nil, 0, domain.Invalid("offset must be 0 or greater")
+	if f.Offset < 0 || f.Offset > domain.MaxPageOffset {
+		return nil, 0, domain.Invalid("offset must be between 0 and %d", domain.MaxPageOffset)
 	}
 	q, err := optionalText("q", f.Query, maxQueryLen)
 	if err != nil {
