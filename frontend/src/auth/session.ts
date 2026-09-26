@@ -36,6 +36,7 @@ function isSession(value: unknown): value is Session {
   );
 }
 
+// サーバーの expiresAt とクライアントの時計を比べる。時計のずれはスコープ外(requirements.md §11)。
 function isExpired(session: Session) {
   return !(Date.parse(session.expiresAt) > Date.now());
 }
