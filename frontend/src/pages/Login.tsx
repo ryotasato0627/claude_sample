@@ -16,9 +16,9 @@ export function Login() {
   const login = useMutation({
     mutationFn: (body: LoginRequest) => unwrap(api.POST("/api/auth/login", { body })),
     // 画面の遷移は GuestOnly が行う。
-    onSuccess: ({ token, user }) => {
+    onSuccess: ({ token, expiresAt, user }) => {
       queryClient.clear();
-      sessionStore.set({ token, user });
+      sessionStore.set({ token, expiresAt, user });
     },
   });
 

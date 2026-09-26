@@ -10,8 +10,12 @@ const auth: Middleware = {
     if (token) request.headers.set("Authorization", `Bearer ${token}`);
     return request;
   },
-  onResponse({ response }) {
-    if (response.status === 401) sessionStore.clear();
+  onResponse({ request, response }) {
+    // 古いトークンで送ったリクエストの 401 で、再ログイン後の新しいセッションを消さない。
+    const token = sessionStore.get()?.token;
+    if (response.status === 401 && token && request.headers.get("Authorization") === `Bearer ${token}`) {
+      sessionStore.clear();
+    }
     return response;
   },
 };

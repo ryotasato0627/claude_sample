@@ -10,6 +10,7 @@ import { sessionStore } from "./auth/session";
 vi.mock("./api/client", () => ({ api: { GET: vi.fn(), POST: vi.fn() } }));
 
 const user = { id: 1, email: "alice@example.com", name: "Alice", createdAt: "2026-01-01T00:00:00Z" };
+const expiresAt = "2999-01-01T00:00:00Z";
 
 function renderApp(path = "/") {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
@@ -41,7 +42,7 @@ describe("認証", () => {
 
   it("ログインに成功すると、ホームを表示してセッションを保存する", async () => {
     vi.mocked(api.POST).mockResolvedValue({
-      data: { token: "jwt", expiresAt: "2026-01-02T00:00:00Z", user },
+      data: { token: "jwt", expiresAt, user },
       response: { ok: true, status: 200 },
     } as never);
     renderApp("/");
@@ -51,7 +52,7 @@ describe("認証", () => {
     expect(api.POST).toHaveBeenCalledWith("/api/auth/login", {
       body: { email: "alice@example.com", password: "password123" },
     });
-    expect(sessionStore.get()).toEqual({ token: "jwt", user });
+    expect(sessionStore.get()).toEqual({ token: "jwt", expiresAt, user });
   });
 
   it("認証に失敗するとエラーを表示する", async () => {
@@ -75,7 +76,7 @@ describe("認証", () => {
   });
 
   it("ログイン済みならログイン画面を表示しない", async () => {
-    sessionStore.set({ token: "jwt", user });
+    sessionStore.set({ token: "jwt", expiresAt, user });
     renderApp("/login");
     expect(await screen.findByRole("heading", { name: "ようこそ、Alice さん" })).toBeInTheDocument();
   });
@@ -87,7 +88,7 @@ describe("認証", () => {
   });
 
   it("ログアウトするとセッションを消してログイン画面へ移動する", async () => {
-    sessionStore.set({ token: "jwt", user });
+    sessionStore.set({ token: "jwt", expiresAt, user });
     renderApp("/");
     fireEvent.click(await screen.findByRole("button", { name: "ログアウト" }));
 
