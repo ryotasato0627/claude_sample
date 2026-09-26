@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { FormEvent } from "react";
+import { Link, useLocation } from "react-router";
 
 import { api } from "../api/client";
 import { errorMessage, unwrap } from "../api/errors";
@@ -9,6 +10,8 @@ import { sessionStore } from "../auth/session";
 type LoginRequest = components["schemas"]["LoginRequest"];
 
 export function Login() {
+  const location = useLocation();
+  const registered = typeof location.state === "object" && location.state !== null && "registered" in location.state;
   const queryClient = useQueryClient();
   const login = useMutation({
     mutationFn: (body: LoginRequest) => unwrap(api.POST("/api/auth/login", { body })),
@@ -28,6 +31,7 @@ export function Login() {
   return (
     <main className="container">
       <h1>ログイン</h1>
+      {registered && <p role="status">登録しました。ログインしてください</p>}
       <form onSubmit={submit}>
         <label>
           メールアドレス
@@ -44,6 +48,9 @@ export function Login() {
           ログイン
         </button>
       </form>
+      <p>
+        アカウントをお持ちでない方は <Link to="/register">ユーザー登録</Link>
+      </p>
     </main>
   );
 }

@@ -80,6 +80,12 @@ describe("認証", () => {
     expect(await screen.findByRole("heading", { name: "ようこそ、Alice さん" })).toBeInTheDocument();
   });
 
+  it("ログイン画面から登録画面へ移動できる", async () => {
+    renderApp("/login");
+    fireEvent.click(screen.getByRole("link", { name: "ユーザー登録" }));
+    expect(await screen.findByRole("heading", { name: "ユーザー登録" })).toBeInTheDocument();
+  });
+
   it("ログアウトするとセッションを消してログイン画面へ移動する", async () => {
     sessionStore.set({ token: "jwt", user });
     renderApp("/");
@@ -87,5 +93,54 @@ describe("認証", () => {
 
     expect(await screen.findByRole("heading", { name: "ログイン" })).toBeInTheDocument();
     expect(sessionStore.get()).toBeNull();
+  });
+});
+
+describe("ユーザー登録", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    sessionStore.clear();
+  });
+
+  function submitRegister() {
+    fireEvent.change(screen.getByLabelText("表示名"), { target: { value: "Alice" } });
+    fireEvent.change(screen.getByLabelText("メールアドレス"), { target: { value: "alice@example.com" } });
+    fireEvent.change(screen.getByLabelText(/パスワード/), { target: { value: "password123" } });
+    fireEvent.click(screen.getByRole("button", { name: "登録する" }));
+  }
+
+  it("登録に成功すると、ログイン画面へ移動して完了を表示する", async () => {
+    vi.mocked(api.POST).mockResolvedValue({ data: user, response: { ok: true, status: 201 } } as never);
+    renderApp("/register");
+    submitRegister();
+
+    expect(await screen.findByRole("status")).toHaveTextContent("登録しました。ログインしてください");
+    expect(screen.getByRole("heading", { name: "ログイン" })).toBeInTheDocument();
+    expect(api.POST).toHaveBeenCalledWith("/api/auth/register", {
+      body: { name: "Alice", email: "alice@example.com", password: "password123" },
+    });
+    expect(sessionStore.get()).toBeNull();
+  });
+
+  it("メールアドレスが登録済みならエラーを表示する", async () => {
+    vi.mocked(api.POST).mockResolvedValue({
+      error: { code: "conflict", message: "the resource already exists or conflicts with its current state" },
+      response: { ok: false, status: 409 },
+    } as never);
+    renderApp("/register");
+    submitRegister();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("このメールアドレスは既に登録されています");
+  });
+
+  it("入力値の検証エラーは、Backend の詳細を添えて表示する", async () => {
+    vi.mocked(api.POST).mockResolvedValue({
+      error: { code: "validation_error", message: "email is invalid" },
+      response: { ok: false, status: 422 },
+    } as never);
+    renderApp("/register");
+    submitRegister();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("入力内容を確認してください(email is invalid)");
   });
 });
