@@ -1,4 +1,4 @@
-import { Link, Outlet } from "react-router";
+import { Link, NavLink, Outlet } from "react-router";
 
 import { sessionStore, useSession } from "../auth/session";
 
@@ -17,6 +17,9 @@ export function Layout() {
               <Link to="/">
                 <strong>Task Management</strong>
               </Link>
+            </li>
+            <li>
+              <NavLink to="/projects">プロジェクト</NavLink>
             </li>
           </ul>
           <ul>
