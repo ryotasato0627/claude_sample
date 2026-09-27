@@ -18,6 +18,9 @@ export function Layout() {
                 <strong>Task Management</strong>
               </Link>
             </li>
+            <li>
+              <Link to="/projects">プロジェクト</Link>
+            </li>
           </ul>
           <ul>
             <li>{session?.user.name}</li>
