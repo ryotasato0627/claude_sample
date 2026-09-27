@@ -74,11 +74,26 @@ describe("プロジェクト一覧", () => {
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
   });
 
+  it("読み込み中は、その旨を表示する", async () => {
+    vi.mocked(api.GET).mockReturnValue(new Promise(() => {}) as never);
+    renderApp();
+
+    expect(await screen.findByText("読み込み中...")).toHaveAttribute("aria-busy", "true");
+  });
+
   it("一覧を取得できなければ、エラーを表示する", async () => {
     vi.mocked(api.GET).mockRejectedValue(new TypeError("Failed to fetch"));
     renderApp();
 
     expect(await screen.findByRole("alert")).toHaveTextContent("サーバーに接続できません");
+  });
+
+  it("一覧の取得で API がエラーを返したら、エラーを表示する", async () => {
+    vi.mocked(api.GET).mockResolvedValue(fail(500));
+    renderApp();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("エラーが発生しました");
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
   });
 
   it("説明の改行を、そのまま表示する", async () => {
@@ -141,6 +156,18 @@ describe("プロジェクト作成", () => {
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 
+  it("作成時にサーバーに接続できなければ、エラーを表示する", async () => {
+    vi.mocked(api.GET).mockResolvedValue(ok([]));
+    vi.mocked(api.POST).mockRejectedValue(new TypeError("Failed to fetch"));
+    renderApp();
+    await screen.findByText("所属しているプロジェクトはまだありません");
+
+    submitCreate("New");
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("サーバーに接続できません");
+    expect(screen.getByLabelText("名前")).toHaveValue("New");
+  });
+
   it("作成後の再取得に失敗しても、表示中の一覧は残し、エラーを併記する", async () => {
     vi.mocked(api.GET)
       .mockResolvedValueOnce(ok([project({ id: 1, name: "Alpha" })]))
@@ -169,7 +196,8 @@ describe("プロジェクト作成", () => {
     expect(api.POST).toHaveBeenCalledTimes(1);
   });
 
-  it("名前は必須・100 文字以内、説明は 2000 文字以内(Backend の制約と揃える)", async () => {
+  // Backend と同じ上限値を指定する(UI の maxLength は UTF-16 のコード単位で数えるため、絵文字などでは Backend より少し厳しい)。
+  it("名前は必須・100 文字以内、説明は 2000 文字以内", async () => {
     vi.mocked(api.GET).mockResolvedValue(ok([]));
     renderApp();
     await screen.findByText("所属しているプロジェクトはまだありません");

@@ -75,6 +75,7 @@ function CreateProjectForm() {
   return (
     <section>
       <h2>プロジェクトを作成</h2>
+      {/* maxLength は UTF-16 のコード単位で数えるため、絵文字などを含むと Backend(文字数で数える)より少し厳しくなる */}
       <form onSubmit={submit}>
         <label>
           名前
