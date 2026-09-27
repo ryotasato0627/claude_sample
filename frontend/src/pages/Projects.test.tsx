@@ -132,6 +132,21 @@ describe("プロジェクト作成", () => {
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 
+  it("作成後の再取得に失敗しても、表示中の一覧は残し、エラーを併記する", async () => {
+    vi.mocked(api.GET)
+      .mockResolvedValueOnce(ok([project({ id: 1, name: "Alpha" })]))
+      .mockRejectedValue(new TypeError("Failed to fetch"));
+    vi.mocked(api.POST).mockResolvedValue(ok(project({ id: 9, name: "New" }), 201));
+    renderApp();
+    await screen.findByRole("cell", { name: "Alpha" });
+
+    submitCreate("New");
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("サーバーに接続できません");
+    expect(screen.getByRole("cell", { name: "Alpha" })).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("プロジェクトを作成しました"); // 作成自体は成功している
+  });
+
   it("作成中はボタンを押せない(二重送信の防止)", async () => {
     vi.mocked(api.GET).mockResolvedValue(ok([]));
     vi.mocked(api.POST).mockReturnValue(new Promise(() => {}) as never);

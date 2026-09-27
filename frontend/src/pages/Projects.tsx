@@ -23,28 +23,35 @@ function ProjectList() {
   const projects = useProjects();
 
   if (projects.isPending) return <p aria-busy="true">読み込み中...</p>;
-  if (projects.isError) return <p role="alert">{errorMessage(projects.error)}</p>;
-  if (projects.data.length === 0) return <p>所属しているプロジェクトはまだありません</p>;
+  // 取得済みの一覧がある場合は、再取得に失敗しても一覧を残し、エラーを併記する。
+  if (!projects.data) return <p role="alert">{errorMessage(projects.error)}</p>;
 
   return (
-    <table>
-      <thead>
-        <tr>
-          <th scope="col">名前</th>
-          <th scope="col">説明</th>
-          <th scope="col">ロール</th>
-        </tr>
-      </thead>
-      <tbody>
-        {projects.data.map((project) => (
-          <tr key={project.id}>
-            <td>{project.name}</td>
-            <td>{project.description}</td>
-            <td>{roleLabels[project.role]}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <>
+      {projects.isError && <p role="alert">{errorMessage(projects.error)}</p>}
+      {projects.data.length === 0 ? (
+        <p>所属しているプロジェクトはまだありません</p>
+      ) : (
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">名前</th>
+              <th scope="col">説明</th>
+              <th scope="col">ロール</th>
+            </tr>
+          </thead>
+          <tbody>
+            {projects.data.map((project) => (
+              <tr key={project.id}>
+                <td>{project.name}</td>
+                <td>{project.description}</td>
+                <td>{roleLabels[project.role]}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </>
   );
 }
 
