@@ -81,6 +81,13 @@ describe("プロジェクト一覧", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("サーバーに接続できません");
   });
 
+  it("説明の改行を、そのまま表示する", async () => {
+    vi.mocked(api.GET).mockResolvedValue(ok([project({ name: "Alpha", description: "1行目\n2行目" })]));
+    renderApp();
+
+    expect(await screen.findByRole("cell", { name: /1行目/ })).toHaveStyle({ whiteSpace: "pre-line" });
+  });
+
   it("ナビゲーションから一覧へ移動できる", async () => {
     vi.mocked(api.GET).mockResolvedValue(ok([project({ name: "Alpha" })]));
     renderApp("/");
@@ -88,6 +95,8 @@ describe("プロジェクト一覧", () => {
 
     expect(await screen.findByRole("heading", { name: "プロジェクト", level: 1 })).toBeInTheDocument();
     expect(await screen.findByRole("cell", { name: "Alpha" })).toBeInTheDocument();
+    // 現在の画面を支援技術に伝える
+    expect(screen.getByRole("link", { name: "プロジェクト" })).toHaveAttribute("aria-current", "page");
   });
 
   it("未ログインならログイン画面へ移動する", async () => {

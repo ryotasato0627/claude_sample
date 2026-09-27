@@ -27,31 +27,35 @@ function ProjectList() {
   if (!projects.data) return <p role="alert">{errorMessage(projects.error)}</p>;
 
   return (
-    <>
+    <section>
+      <h2>所属しているプロジェクト</h2>
       {projects.isError && <p role="alert">{errorMessage(projects.error)}</p>}
       {projects.data.length === 0 ? (
         <p>所属しているプロジェクトはまだありません</p>
       ) : (
-        <table>
-          <thead>
-            <tr>
-              <th scope="col">名前</th>
-              <th scope="col">説明</th>
-              <th scope="col">ロール</th>
-            </tr>
-          </thead>
-          <tbody>
-            {projects.data.map((project) => (
-              <tr key={project.id}>
-                <td>{project.name}</td>
-                <td>{project.description}</td>
-                <td>{roleLabels[project.role]}</td>
+        <div className="overflow-auto">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">名前</th>
+                <th scope="col">説明</th>
+                <th scope="col">ロール</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {projects.data.map((project) => (
+                <tr key={project.id}>
+                  <td>{project.name}</td>
+                  {/* 説明は textarea で入力するため、改行をそのまま表示する */}
+                  <td style={{ whiteSpace: "pre-line" }}>{project.description}</td>
+                  <td>{roleLabels[project.role]}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
-    </>
+    </section>
   );
 }
 
