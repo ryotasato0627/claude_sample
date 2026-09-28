@@ -12,14 +12,7 @@ description: golang-migrate によるDBマイグレーションの追加規約�
 
 ## Rules
 
-* マイグレーションは `backend/db/migrations/` に **連番の up / down ペア**で追加する
-* **既存(適用済み)マイグレーションは書き換えない。** 変更は新しいマイグレーションで行う
-* 1 マイグレーション = 1 つの目的。小さく保つ
-* **down は必ず書く**(up を元に戻せること)
-* 破壊的変更(列削除・型変更・NOT NULL 追加)は、既存データへの影響を確認する。必要ならデータ移行を含める、または段階的に分ける
-* 外部キー・NOT NULL・UNIQUE・CHECK(例: `role` は owner/member/viewer、`status` は todo/in_progress/done)は DB 側でも制約する
-* 検索や外部キーで使うカラムにはインデックスを検討する
-* 秘密情報や環境依存の値を書かない
+`.claude/rules/migrations.md` に従う。
 
 ## Steps
 

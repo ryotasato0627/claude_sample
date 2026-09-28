@@ -8,7 +8,7 @@ description: 新しいAPIエンドポイントを追加する手順。OpenAPI更
 ## Purpose
 
 エンドポイントを、仕様(OpenAPI)起点かつ依存性逆転のルールを守って追加する。
-アーキテクチャの詳細は `docs/spec/requirements.md` 第7.1章、権限は第2章を正とする。
+ルールは `.claude/rules/openapi.md` と `.claude/rules/backend-architecture.md`、権限は `docs/spec/requirements.md` 第2章を正とする。
 
 ## Steps
 
@@ -29,8 +29,7 @@ docker compose run --rm sqlc generate        # SQL を追加した場合
 make generate                                # oapi-codegen / openapi-typescript
 ```
 
-* 認証が不要なエンドポイントは `security: []` を付け、`backend/internal/handler/http.go` の `publicPaths` にも追加する(両者の一致を `spec_test.go` が検査する)
-* 入力の形式エラーを 422 にしたい項目(例: メールアドレス)には `format` を付けない。付けると生成コードのデコード時点で 400 になる。形式は service で検証する
+* 認証が不要な場合の `publicPaths`、`format` の扱いは `.claude/rules/openapi.md` に従う
 
 ### 3. 内側から順に実装する(依存の向きを守る)
 
