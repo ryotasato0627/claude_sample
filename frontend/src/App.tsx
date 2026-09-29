@@ -4,6 +4,7 @@ import { GuestOnly, RequireAuth } from "./auth/guards";
 import { Layout } from "./components/Layout";
 import { Home } from "./pages/Home";
 import { Login } from "./pages/Login";
+import { ProjectDetail } from "./pages/ProjectDetail";
 import { Projects } from "./pages/Projects";
 import { Register } from "./pages/Register";
 
@@ -18,6 +19,7 @@ export function App() {
         <Route element={<Layout />}>
           <Route index element={<Home />} />
           <Route path="projects" element={<Projects />} />
+          <Route path="projects/:projectId" element={<ProjectDetail />} />
         </Route>
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

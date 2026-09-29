@@ -1,18 +1,25 @@
 import type { FormEvent } from "react";
+import { Link, useLocation } from "react-router";
 
 import { errorMessage } from "../api/errors";
-import { type Role, useCreateProject, useProjects } from "../api/projects";
+import { useCreateProject, useProjects } from "../api/projects";
+import { roleLabels } from "../components/roleLabels";
 
-const roleLabels: Record<Role, string> = {
-  owner: "オーナー",
-  member: "メンバー",
-  viewer: "閲覧者",
-};
+// 詳細画面で削除した後に、削除したプロジェクトの名前を受け取る。
+function deletedProjectName(state: unknown): string | undefined {
+  if (typeof state === "object" && state !== null && "deletedProjectName" in state) {
+    return typeof state.deletedProjectName === "string" ? state.deletedProjectName : undefined;
+  }
+  return undefined;
+}
 
 export function Projects() {
+  const deleted = deletedProjectName(useLocation().state);
+
   return (
     <>
       <h1>プロジェクト</h1>
+      {deleted !== undefined && <p role="status">「{deleted}」を削除しました</p>}
       <ProjectList />
       <CreateProjectForm />
     </>
@@ -45,7 +52,9 @@ function ProjectList() {
             <tbody>
               {projects.data.map((project) => (
                 <tr key={project.id}>
-                  <td>{project.name}</td>
+                  <td>
+                    <Link to={`/projects/${project.id}`}>{project.name}</Link>
+                  </td>
                   {/* 説明は textarea で入力するため、改行をそのまま表示する */}
                   <td style={{ whiteSpace: "pre-line" }}>{project.description}</td>
                   <td>{roleLabels[project.role]}</td>
