@@ -42,4 +42,4 @@ make down        # 停止
 | Agent | `reviewer` | レビュー(コードは変更しない) |
 | Skill | `add-endpoint` / `add-migration` / `pr-review` | 定型手順 |
 
-ブランチ戦略・PR ルールは [`docs/development/`](docs/development/) を参照。
+共通ルールは [`CLAUDE.md`](CLAUDE.md)、レイヤーごとの詳細ルールは [`.claude/rules/`](.claude/rules/) に置く。ブランチ戦略・PR ルールは [`docs/development/`](docs/development/) を参照。

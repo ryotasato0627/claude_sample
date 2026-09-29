@@ -255,7 +255,8 @@ cmd/server (composition root)
 ├── .env.example
 ├── .github/workflows/
 ├── docs/{spec,development}/
-└── .claude/{agents,skills,settings.json}
+├── CLAUDE.md              # Claude Code の共通ルール
+└── .claude/{agents,skills,rules,settings.json}
 ```
 
 ## 11. 実装状況
