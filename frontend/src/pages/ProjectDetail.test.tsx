@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -211,6 +211,36 @@ describe("プロジェクト編集", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("この操作を行う権限がありません");
   });
 
+  // 他の人が削除した・メンバーから外された(404)場合は、詳細を取り直して見つからない旨を表示する
+  it("編集が 404 なら、古い内容と操作ボタンを残さず、見つからない旨を表示する", async () => {
+    mockGet(ok(alpha));
+    vi.mocked(api.PATCH).mockResolvedValue(fail(404));
+    renderApp();
+    await screen.findByRole("heading", { name: "Alpha", level: 1 });
+
+    mockGet(fail(404));
+    submitEdit("Alpha 2", "説明");
+
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "Alpha", level: 1 })).not.toBeInTheDocument());
+    expect(screen.getByRole("alert")).toHaveTextContent("プロジェクトが見つかりません");
+    expect(screen.getByRole("link", { name: "プロジェクト一覧へ戻る" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "編集する" })).not.toBeInTheDocument();
+  });
+
+  // 編集中に owner から降格された(403)場合は、詳細を取り直して現在のロールで表示する
+  it("編集が 403 なら、詳細を取り直して現在のロールで表示する", async () => {
+    mockGet(ok(alpha));
+    vi.mocked(api.PATCH).mockResolvedValue(fail(403));
+    renderApp();
+    await screen.findByRole("heading", { name: "Alpha", level: 1 });
+
+    mockGet(ok({ ...alpha, role: "member" }));
+    submitEdit("Alpha 2", "説明");
+
+    expect(await screen.findByText("あなたのロール: メンバー")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "編集する" })).not.toBeInTheDocument();
+  });
+
   it("キャンセルすると、API を呼ばずにフォームを閉じる", async () => {
     mockGet(ok(alpha));
     renderApp();
@@ -286,6 +316,21 @@ describe("プロジェクト削除", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("この操作を行う権限がありません");
     expect(screen.getByRole("heading", { name: "Alpha", level: 1 })).toBeInTheDocument();
+  });
+
+  it("削除が 404 なら、見つからない旨を表示する", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    mockGet(ok(alpha));
+    vi.mocked(api.DELETE).mockResolvedValue(fail(404));
+    renderApp();
+    await screen.findByRole("heading", { name: "Alpha", level: 1 });
+
+    mockGet(fail(404));
+    fireEvent.click(screen.getByRole("button", { name: "削除する" }));
+
+    await waitFor(() => expect(screen.queryByRole("button", { name: "削除する" })).not.toBeInTheDocument());
+    expect(screen.getByRole("alert")).toHaveTextContent("プロジェクトが見つかりません");
+    expect(screen.queryByRole("heading", { name: "Alpha", level: 1 })).not.toBeInTheDocument();
   });
 
   it("削除中はボタンを押せない(二重送信の防止)", async () => {

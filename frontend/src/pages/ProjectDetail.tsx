@@ -1,7 +1,7 @@
 import { type FormEvent, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 
-import { errorMessage } from "../api/errors";
+import { ApiError, errorMessage } from "../api/errors";
 import {
   type Project,
   type UpdateProjectRequest,
@@ -42,7 +42,9 @@ function ProjectView({ projectId }: { projectId: number }) {
 
   if (project.isPending) return <p aria-busy="true">読み込み中...</p>;
   // メンバーでないプロジェクトも 404 になる(存在を知らせない)。
-  if (!project.data) return <NotFound message={errorMessage(project.error, { 404: notFoundMessage })} />;
+  // 表示中に削除された・メンバーから外された場合も、古い内容と操作ボタンを残さない。
+  const notFound = project.error instanceof ApiError && project.error.status === 404;
+  if (!project.data || notFound) return <NotFound message={errorMessage(project.error, { 404: notFoundMessage })} />;
 
   return (
     <>

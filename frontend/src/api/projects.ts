@@ -1,7 +1,7 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { type QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "./client";
-import { unwrap } from "./errors";
+import { ApiError, unwrap } from "./errors";
 import type { components } from "./schema.gen";
 
 export type Project = components["schemas"]["Project"];
@@ -41,6 +41,15 @@ export function useProject(projectId: number) {
   });
 }
 
+// 権限が変わった(403)・削除された(404)場合は、詳細を取り直して表示(ロール・存在)を最新にする。
+function refreshDetailOnStaleError(queryClient: QueryClient, projectId: number) {
+  return (error: Error) => {
+    if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {
+      return queryClient.invalidateQueries({ queryKey: projectKeys.detail(projectId) });
+    }
+  };
+}
+
 export function useUpdateProject(projectId: number) {
   const queryClient = useQueryClient();
   return useMutation({
@@ -51,6 +60,7 @@ export function useUpdateProject(projectId: number) {
       queryClient.setQueryData(projectKeys.detail(projectId), project);
       return queryClient.invalidateQueries({ queryKey: projectKeys.lists() });
     },
+    onError: refreshDetailOnStaleError(queryClient, projectId),
   });
 }
 
@@ -63,5 +73,6 @@ export function useDeleteProject(projectId: number) {
       queryClient.removeQueries({ queryKey: projectKeys.detail(projectId) });
       return queryClient.invalidateQueries({ queryKey: projectKeys.lists() });
     },
+    onError: refreshDetailOnStaleError(queryClient, projectId),
   });
 }
