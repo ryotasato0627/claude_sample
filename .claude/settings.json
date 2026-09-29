@@ -3,7 +3,6 @@
     "deny": [
       "Read(.env)",
       "Read(*.env)",
-      "Read(.env.*)",
       "Bash(cat *.env*)",
       "Bash(head *.env*)",
       "Bash(tail *.env*)",
@@ -15,6 +14,14 @@
       "Bash(vim *.env*)",
       "Bash(nano *.env*)",
       "Bash(bat *.env*)"
+    ],
+    "allow": [
+      "Bash(rm tmp/*)",
+      "Bash(rm -r tmp/*)",
+      "Bash(rm -rf tmp/*)"
+    ],
+    "ask": [
+      "Bash(rm *)"
     ]
   }
 }
