@@ -265,6 +265,7 @@ cmd/server (composition root)
 - Frontend は、API の型(`src/api/schema.gen.ts`)を生成済み。画面は `docs/development/plans/frontend-screens.md` の計画に沿って実装中。
   - 実装済み: ユーザー登録、ログイン、ログアウト、未ログイン時のログイン画面へのリダイレクト。
   - 実装済み: 所属プロジェクトの一覧(名前・説明・自分のロール)と作成(`/projects`。ナビゲーションから移動する)。作成後は一覧を Backend から取り直す(`src/api/projects.ts`)。
+  - 実装済み: プロジェクトの詳細(`/projects/:projectId`。一覧の名前から移動する)、編集・削除(owner のみ表示)。編集は変更した項目だけを送る。ロールによる表示の出し分けは `src/auth/permissions.ts` に集約する(権限マトリクスの全組み合わせをテスト)。
   - 現在のユーザーを返す API は無いため、ログイン応答の `user` と `expiresAt` をトークンと一緒に `localStorage` に保存する(`src/auth/session.ts`)。有効期限が来たとき、または現在のトークンで送ったリクエストが 401 になったとき(`src/api/client.ts`)に消す。形が不正な保存値は破棄し、他のタブでのログイン・ログアウトも反映する。セッションのユーザーが変わったら、Query のキャッシュを消す(`src/auth/cache.ts`)。
   - 有効期限は、サーバーが返した `expiresAt` とクライアントの時計を比べて判定する。クライアントの時計のずれはスコープ外とする(時計が進んでいると、その分だけ早くログアウトされる)。
 - 並行実行時の整合性(実 DB で並行テスト済み):
