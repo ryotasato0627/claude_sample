@@ -572,3 +572,129 @@ describe("担当者変更", () => {
     expect(field("担当者")).toHaveTextContent(/^Bob$/);
   });
 });
+
+describe("Task 削除", () => {
+  const deleted = { response: { ok: true, status: 204 } } as never;
+
+  // 権限マトリクス: Task 削除は owner のみ
+  it("owner には削除を表示する", async () => {
+    mockGet();
+    renderApp();
+
+    expect(await screen.findByRole("button", { name: "削除する" })).toBeInTheDocument();
+  });
+
+  it.each(["member", "viewer"] as const)("%s には削除を表示しない", async (role) => {
+    mockGet({ detail: ok(project(role)) });
+    renderApp();
+    await screen.findByRole("link", { name: "「Alpha」へ戻る" });
+
+    expect(screen.queryByRole("button", { name: "削除する" })).not.toBeInTheDocument();
+  });
+
+  it("確認後に削除し、プロジェクトへ戻って Task 一覧を取り直し、削除した旨を表示する", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    mockGet();
+    vi.mocked(api.DELETE).mockResolvedValue(deleted);
+    renderApp("/projects/1");
+    fireEvent.click(await screen.findByRole("link", { name: "設計" }));
+    const button = await screen.findByRole("button", { name: "削除する" });
+
+    mockGet({ task: fail(404), tasks: ok({ items: [], total: 0, limit: 20, offset: 0 }) });
+    fireEvent.click(button);
+
+    expect(await screen.findByText("「設計」を削除しました")).toHaveAttribute("role", "status");
+    expect(await screen.findByText("Task はまだありません")).toBeInTheDocument();
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("設計"));
+    expect(api.DELETE).toHaveBeenCalledWith("/api/tasks/{taskId}", { params: { path: { taskId: 7 } } });
+    // 削除後に詳細を取り直さない(削除直後に 404 を表示しない)
+    expect(getCalls("/api/tasks/{taskId}")).toHaveLength(1);
+    expect(screen.queryByText("Task が見つかりません")).not.toBeInTheDocument();
+  });
+
+  it("確認で取り消すと、削除しない", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(false);
+    mockGet();
+    renderApp();
+
+    fireEvent.click(await screen.findByRole("button", { name: "削除する" }));
+
+    expect(api.DELETE).not.toHaveBeenCalled();
+    expect(screen.getByRole("heading", { name: "設計", level: 1 })).toBeInTheDocument();
+  });
+
+  it("失敗したら(500)、エラーを表示して画面に残る", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    mockGet();
+    vi.mocked(api.DELETE).mockResolvedValue(fail(500));
+    renderApp();
+
+    fireEvent.click(await screen.findByRole("button", { name: "削除する" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("エラーが発生しました");
+    expect(screen.getByRole("heading", { name: "設計", level: 1 })).toBeInTheDocument();
+  });
+
+  it("権限が無ければ(403)、プロジェクトを取り直し、削除を表示しない", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    mockGet();
+    vi.mocked(api.DELETE).mockResolvedValue(fail(403));
+    renderApp();
+    const button = await screen.findByRole("button", { name: "削除する" });
+
+    mockGet({ detail: ok(project("member")) });
+    fireEvent.click(button);
+
+    await waitFor(() => expect(screen.queryByRole("button", { name: "削除する" })).not.toBeInTheDocument());
+    expect(screen.getByRole("heading", { name: "設計", level: 1 })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "編集する" })).toBeInTheDocument();
+  });
+
+  it("削除が 404 なら、見つからない旨を表示する", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    mockGet();
+    vi.mocked(api.DELETE).mockResolvedValue(fail(404));
+    renderApp();
+    const button = await screen.findByRole("button", { name: "削除する" });
+
+    mockGet({ task: fail(404) });
+    fireEvent.click(button);
+
+    await waitFor(() => expect(screen.queryByRole("button", { name: "削除する" })).not.toBeInTheDocument());
+    expect(screen.getByRole("alert")).toHaveTextContent("Task が見つかりません");
+  });
+
+  it("削除中は、編集・ステータス・担当者も操作できない(二重送信の防止)", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    mockGet();
+    vi.mocked(api.DELETE).mockReturnValue(new Promise(() => {}) as never);
+    renderApp();
+
+    fireEvent.click(await screen.findByRole("button", { name: "削除する" }));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "削除する" })).toBeDisabled());
+    expect(screen.getByRole("button", { name: "編集する" })).toBeDisabled();
+    expect(screen.getByRole("combobox", { name: "ステータス" })).toBeDisabled();
+    expect(screen.getByRole("combobox", { name: "担当者" })).toBeDisabled();
+  });
+
+  it("削除中に別の画面へ移動していたら、削除後にプロジェクトへ戻さない", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    mockGet();
+    let resolveDelete: (value: unknown) => void = () => {};
+    vi.mocked(api.DELETE).mockReturnValue(
+      new Promise((resolve) => {
+        resolveDelete = resolve;
+      }) as never,
+    );
+    renderApp();
+    fireEvent.click(await screen.findByRole("button", { name: "削除する" }));
+
+    fireEvent.click(screen.getByRole("link", { name: "Task Management" }));
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "設計", level: 1 })).not.toBeInTheDocument());
+    resolveDelete(deleted);
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.queryByRole("heading", { name: "Alpha", level: 1 })).not.toBeInTheDocument();
+  });
+});

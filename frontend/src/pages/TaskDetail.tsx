@@ -1,5 +1,5 @@
 import { type FormEvent, useState } from "react";
-import { Link, useParams } from "react-router";
+import { Link, useNavigate, useParams } from "react-router";
 
 import { ApiError, errorMessage } from "../api/errors";
 import { useMembers } from "../api/members";
@@ -7,6 +7,7 @@ import { useProject } from "../api/projects";
 import {
   type Task,
   type UpdateTaskRequest,
+  useDeleteTask,
   useTask,
   useUpdateTask,
   useUpdateTaskAssignee,
@@ -59,14 +60,29 @@ function TaskView({ task }: { task: Task }) {
 
   const canChangeStatus = role !== undefined && can(role, "changeTaskStatus");
   const canChangeAssignee = role !== undefined && can(role, "changeTaskAssignee");
-  // 保存と変更を並行させない(応答の到着順で、古い応答が表示を上書きしないように)。
-  const busy = update.isPending || changeStatus.isPending || changeAssignee.isPending;
+  const canDelete = role !== undefined && can(role, "deleteTask");
+
+  const navigate = useNavigate();
+  const remove = useDeleteTask(task.id, task.projectId, {
+    // プロジェクトの Task 一覧へ戻り、削除した旨を表示する。
+    onDeleted: () =>
+      navigate(`/projects/${task.projectId}`, { replace: true, state: { deletedTaskTitle: task.title } }),
+  });
+  // 保存・変更・削除を並行させない(応答の到着順で、古い応答が表示を上書きしないように)。
+  const busy = update.isPending || changeStatus.isPending || changeAssignee.isPending || remove.isPending;
 
   // 直前の操作の結果だけを表示する。
   const resetResults = () => {
     update.reset();
     changeStatus.reset();
     changeAssignee.reset();
+    remove.reset();
+  };
+
+  const deleteTask = () => {
+    if (!window.confirm(`「${task.title}」を削除しますか?コメントもすべて削除されます`)) return;
+    resetResults();
+    remove.mutate();
   };
 
   const startEditing = () => {
@@ -118,10 +134,26 @@ function TaskView({ task }: { task: Task }) {
           {/* 説明は textarea で入力するため、改行をそのまま表示する */}
           {task.description && <p style={{ whiteSpace: "pre-line" }}>{task.description}</p>}
           {update.isSuccess && <p role="status">Task を更新しました</p>}
-          {canWrite && (
-            <button type="button" onClick={startEditing} disabled={busy}>
-              編集する
-            </button>
+          {remove.isError && <p role="alert">{errorMessage(remove.error, { 404: notFoundMessage })}</p>}
+          {(canWrite || canDelete) && (
+            <div role="group">
+              {canWrite && (
+                <button type="button" onClick={startEditing} disabled={busy}>
+                  編集する
+                </button>
+              )}
+              {canDelete && (
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={deleteTask}
+                  disabled={busy}
+                  aria-busy={remove.isPending}
+                >
+                  削除する
+                </button>
+              )}
+            </div>
           )}
         </>
       )}
