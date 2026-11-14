@@ -1,13 +1,13 @@
 import { type FormEvent, useState } from "react";
+import { Link } from "react-router";
 
 import { errorMessage } from "../api/errors";
-import { type Member, useMembers } from "../api/members";
+import { useMembers } from "../api/members";
 import type { Project } from "../api/projects";
 import { type TaskFilters, type TaskStatus, taskPageSize, useCreateTask, useProjectTasks } from "../api/tasks";
 import { can } from "../auth/permissions";
+import { assigneeName, formatDateTime } from "../components/taskFormat";
 import { taskStatuses, taskStatusLabels } from "../components/taskStatusLabels";
-
-const dateFormat = new Intl.DateTimeFormat("ja-JP", { dateStyle: "short", timeStyle: "short" });
 
 function toStatus(value: string): TaskStatus | undefined {
   return taskStatuses.find((status) => status === value);
@@ -17,12 +17,6 @@ function toStatus(value: string): TaskStatus | undefined {
 function toAssigneeId(value: string): number | undefined {
   const id = Number(value);
   return value !== "" && Number.isSafeInteger(id) ? id : undefined;
-}
-
-function assigneeName(assigneeId: number | null, members: Member[] | undefined): string {
-  if (assigneeId === null) return "未割り当て";
-  // メンバー一覧を取得できていない間や、取得後に外れたメンバーは ID で表示する。
-  return members?.find((member) => member.userId === assigneeId)?.name ?? `ユーザー #${assigneeId}`;
 }
 
 // プロジェクト詳細の「Task」。全ロールに一覧を表示し、作成は owner / member にだけ表示する。
@@ -112,11 +106,13 @@ export function ProjectTasks({ project }: { project: Project }) {
               <tbody>
                 {tasks.data.items.map((task) => (
                   <tr key={task.id}>
-                    <td>{task.title}</td>
+                    <td>
+                      <Link to={`/tasks/${task.id}`}>{task.title}</Link>
+                    </td>
                     <td>{taskStatusLabels[task.status]}</td>
                     <td>{assigneeName(task.assigneeId, members.data)}</td>
                     <td>
-                      <time dateTime={task.updatedAt}>{dateFormat.format(new Date(task.updatedAt))}</time>
+                      <time dateTime={task.updatedAt}>{formatDateTime(task.updatedAt)}</time>
                     </td>
                   </tr>
                 ))}
