@@ -262,7 +262,7 @@ cmd/server (composition root)
 ## 11. 実装状況
 - 第4章の API はすべて実装済み(Backend)。`domain` / `service` / `handler` / `repository` / `infra` は第7.1章の依存方向に従う(depguard で検査)。
 - テスト: `domain`(権限判定)、`service`(fake 注入。権限マトリクスの全組み合わせ)、`handler`(認証・エラー変換・入力の異常系・OpenAPI との整合)、`repository`(実 DB。一時スキーマで分離)、`cmd/server`(実 DB を使った E2E)。
-- Frontend は、API の型(`src/api/schema.gen.ts`)を生成済み。画面は `docs/development/plans/frontend-screens.md` の計画に沿って実装中。
+- Frontend は、API の型(`src/api/schema.gen.ts`)を生成済み。画面は `docs/development/plans/frontend-screens.md` の計画に沿って実装した。
   - 実装済み: ユーザー登録、ログイン、ログアウト、未ログイン時のログイン画面へのリダイレクト。
   - 実装済み: 所属プロジェクトの一覧(名前・説明・自分のロール)と作成(`/projects`。ナビゲーションから移動する)。作成後は一覧を Backend から取り直す(`src/api/projects.ts`)。
   - 実装済み: プロジェクトの詳細(`/projects/:projectId`。一覧の名前から移動する)、編集・削除(owner のみ表示)。編集は変更した項目だけを送る。ロールによる表示の出し分けは `src/auth/permissions.ts` に集約する(権限マトリクスの全組み合わせをテスト)。
@@ -270,6 +270,7 @@ cmd/server (composition root)
   - 実装済み: Task 一覧(プロジェクト詳細の「Task」。全ロール)と作成(owner / member のみ表示)。ステータス・担当者で絞り込み、20 件ずつページネーションする。担当者の名前と選択肢はメンバー一覧を使う。Task 一覧の Query のキーも詳細の下に置く(`src/api/tasks.ts`)。
   - 実装済み: Task 詳細(`/tasks/:taskId`。Task 一覧のタイトルから移動する。全ロール)。タイトル・説明の編集、ステータス・担当者の変更は owner / member のみ表示する。ロールと担当者の候補は Task が属するプロジェクトから取得する。担当の解除は `assigneeId: null` を明示して送る。削除は owner のみ表示し、削除後はプロジェクトの Task 一覧へ戻る。
   - 実装済み: コメント(Task 詳細の「コメント」)。一覧は全ロール(投稿の古い順。投稿者の名前はメンバー一覧から引く)。投稿は owner / member、編集・削除は owner は全件・member は自分のコメントのみ表示する。コメント一覧の Query のキーは Task 詳細の下に置く(`src/api/comments.ts`)。
+  - 実装済み: Task 検索(`/tasks`。ナビゲーションから移動する。全ロール)。キーワード・プロジェクト・ステータス・担当者で検索し、20 件ずつページネーションする。担当者の候補は選んだプロジェクトのメンバー。結果の担当者名は、結果に含まれる各プロジェクトのメンバー一覧から引く。
   - 現在のユーザーを返す API は無いため、ログイン応答の `user` と `expiresAt` をトークンと一緒に `localStorage` に保存する(`src/auth/session.ts`)。有効期限が来たとき、または現在のトークンで送ったリクエストが 401 になったとき(`src/api/client.ts`)に消す。形が不正な保存値は破棄し、他のタブでのログイン・ログアウトも反映する。セッションのユーザーが変わったら、Query のキャッシュを消す(`src/auth/cache.ts`)。
   - 有効期限は、サーバーが返した `expiresAt` とクライアントの時計を比べて判定する。クライアントの時計のずれはスコープ外とする(時計が進んでいると、その分だけ早くログアウトされる)。
 - 並行実行時の整合性(実 DB で並行テスト済み):
