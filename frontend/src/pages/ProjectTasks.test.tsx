@@ -370,3 +370,154 @@ describe("Task 作成", () => {
     expect(createForm().getByLabelText("説明")).toHaveAttribute("maxLength", "10000");
   });
 });
+
+describe("Task 一覧の 404・メンバーの変化", () => {
+  it("一覧が 404(削除された・外された)なら、詳細を取り直し、見つからない旨を表示する", async () => {
+    // 詳細は 1 回目だけ取得でき、取り直すと 404 になる
+    let detailCalls = 0;
+    vi.mocked(api.GET).mockImplementation(((path: string) => {
+      if (path === "/api/projects/{projectId}/tasks") return Promise.resolve(fail(404));
+      if (path === "/api/projects/{projectId}/members") return Promise.resolve(ok([alice, bob]));
+      return Promise.resolve(detailCalls++ === 0 ? ok(project("owner")) : fail(404));
+    }) as never);
+    renderApp();
+
+    expect(await screen.findByText("プロジェクトが見つかりません")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Alpha", level: 1 })).not.toBeInTheDocument();
+  });
+
+  it("作成が 404 なら、詳細を取り直し、見つからない旨を表示する", async () => {
+    mockGet();
+    vi.mocked(api.POST).mockResolvedValue(fail(404));
+    renderApp();
+    await tasksSection();
+
+    mockGet({ detail: fail(404) });
+    fireEvent.change(screen.getByLabelText("タイトル"), { target: { value: "新しい Task" } });
+    fireEvent.click(screen.getByRole("button", { name: "作成する" }));
+
+    expect(await screen.findByText("プロジェクトが見つかりません")).toBeInTheDocument();
+  });
+
+  it("メンバーを外すと Task 一覧を取り直し、外した人の担当は「未割り当て」になる", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    mockGet({ tasks: () => page([task({ title: "設計", assigneeId: 2 })]) });
+    vi.mocked(api.DELETE).mockResolvedValue({ response: { ok: true, status: 204 } } as never);
+    renderApp();
+    const section = await tasksSection();
+    await waitFor(() => expect(rowTexts(section)).toEqual([["設計", "未着手", "Bob"]]));
+
+    // Backend は外したメンバーの担当を解除する
+    mockGet({ members: ok([alice]), tasks: () => page([task({ title: "設計", assigneeId: null })]) });
+    fireEvent.click(screen.getByRole("button", { name: "Bob を外す" }));
+
+    await waitFor(() => expect(rowTexts(section)).toEqual([["設計", "未着手", "未割り当て"]]));
+  });
+
+  it("絞り込み中の担当者がメンバーから外れても、絞り込み中であることを表示する", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    mockGet();
+    vi.mocked(api.DELETE).mockResolvedValue({ response: { ok: true, status: 204 } } as never);
+    renderApp();
+    const section = await tasksSection();
+    const select = section.getByLabelText("担当者");
+    await within(select).findByRole("option", { name: "Bob" });
+    fireEvent.change(select, { target: { value: "2" } });
+
+    mockGet({ members: ok([alice]) });
+    fireEvent.click(screen.getByRole("button", { name: "Bob を外す" }));
+
+    expect(await within(select).findByRole("option", { name: "ユーザー #2" })).toBeInTheDocument();
+    expect(select).toHaveValue("2");
+  });
+});
+
+describe("Task のページネーション(境界・エラー)", () => {
+  const all = Array.from({ length: 45 }, (_, i) => task({ id: i + 1, title: `Task ${i + 1}` }));
+  const paged = (query: TaskQuery) => page(all.slice(query.offset, query.offset + query.limit), all.length, query.offset);
+
+  it("次のページを読み込んでいる間は、前の結果を表示したままページの操作を押せない", async () => {
+    mockGet({ tasks: (query) => (query.offset === 0 ? paged(query) : new Promise(() => {})) });
+    renderApp();
+    const section = await tasksSection();
+    await section.findByRole("cell", { name: "Task 1" });
+
+    fireEvent.click(section.getByRole("button", { name: "次へ" }));
+
+    await waitFor(() => expect(section.getByRole("button", { name: "次へ" })).toBeDisabled());
+    expect(section.getByRole("button", { name: "前へ" })).toBeDisabled();
+    expect(section.getByRole("cell", { name: "Task 1" })).toBeInTheDocument();
+    // 件数の表示は、表示中の(前の)結果に合わせる
+    expect(section.getByText("全 45 件中 1〜20 件")).toBeInTheDocument();
+  });
+
+  it("表示中に件数が減って範囲外のページになったら、その旨を表示し、前へで最後のページに戻る", async () => {
+    // 3 ページ目(offset 40)を開いた時点で、他の人の削除により 40 件に減っている
+    mockGet({
+      tasks: (query) =>
+        query.offset === 40 ? page([], 40, 40) : page(all.slice(query.offset, query.offset + 20), 45, query.offset),
+    });
+    renderApp();
+    const section = await tasksSection();
+    await section.findByRole("cell", { name: "Task 1" });
+    fireEvent.click(section.getByRole("button", { name: "次へ" }));
+    await section.findByRole("cell", { name: "Task 21" });
+    fireEvent.click(section.getByRole("button", { name: "次へ" }));
+
+    expect(await section.findByText("このページに Task はありません")).toBeInTheDocument();
+    expect(section.getByText("全 40 件")).toBeInTheDocument();
+
+    fireEvent.click(section.getByRole("button", { name: "前へ" }));
+    expect(await section.findByRole("cell", { name: "Task 21" })).toBeInTheDocument();
+    expect(taskQueries().map((query) => query.offset)).toEqual([0, 20, 40, 20]);
+  });
+
+  it("まだ取得していないページで失敗したら、エラーと再読み込みを表示する", async () => {
+    let failOnce = true;
+    mockGet({
+      tasks: (query) => {
+        if (query.offset === 20 && failOnce) {
+          failOnce = false;
+          return fail(500);
+        }
+        return paged(query);
+      },
+    });
+    renderApp();
+    const section = await tasksSection();
+    await section.findByRole("cell", { name: "Task 1" });
+    fireEvent.click(section.getByRole("button", { name: "次へ" }));
+
+    expect(await section.findByRole("alert")).toHaveTextContent("エラーが発生しました");
+    fireEvent.click(section.getByRole("button", { name: "再読み込み" }));
+
+    expect(await section.findByRole("cell", { name: "Task 21" })).toBeInTheDocument();
+  });
+
+  it("ステータスと担当者を両方指定して絞り込む", async () => {
+    mockGet();
+    renderApp();
+    const section = await tasksSection();
+    await within(section.getByLabelText("担当者")).findByRole("option", { name: "Bob" });
+
+    fireEvent.change(section.getByLabelText("ステータス"), { target: { value: "in_progress" } });
+    fireEvent.change(section.getByLabelText("担当者"), { target: { value: "2" } });
+
+    await waitFor(() =>
+      expect(taskQueries().at(-1)).toEqual({ status: "in_progress", assigneeId: 2, limit: 20, offset: 0 }),
+    );
+  });
+
+  it("担当者の絞り込みを変えても、1 ページ目に戻る", async () => {
+    mockGet({ tasks: paged });
+    renderApp();
+    const section = await tasksSection();
+    await section.findByRole("cell", { name: "Task 1" });
+    fireEvent.click(section.getByRole("button", { name: "次へ" }));
+    await section.findByRole("cell", { name: "Task 21" });
+
+    fireEvent.change(section.getByLabelText("担当者"), { target: { value: "2" } });
+
+    await waitFor(() => expect(taskQueries().at(-1)).toMatchObject({ assigneeId: 2, offset: 0 }));
+  });
+});

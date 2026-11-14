@@ -36,6 +36,8 @@ export function ProjectTasks({ project }: { project: Project }) {
   // 絞り込みを変えたら 1 ページ目に戻す。
   const changeFilter = (change: Omit<TaskFilters, "offset">) => setFilters({ ...filters, ...change, offset: 0 });
   const filtered = filters.status !== undefined || filters.assigneeId !== undefined;
+  const selectedAssigneeMissing =
+    filters.assigneeId !== undefined && !members.data?.some((member) => member.userId === filters.assigneeId);
 
   return (
     <section>
@@ -67,19 +69,36 @@ export function ProjectTasks({ project }: { project: Project }) {
                 {member.name}
               </option>
             ))}
+            {/* 選んだ担当者がメンバーから外れても、絞り込み中であることが分かるよう選択肢を残す */}
+            {selectedAssigneeMissing && (
+              <option value={filters.assigneeId}>{assigneeName(filters.assigneeId ?? null, undefined)}</option>
+            )}
           </select>
         </label>
       </div>
       {tasks.isPending ? (
         <p aria-busy="true">読み込み中...</p>
       ) : !tasks.data ? (
-        <p role="alert">{errorMessage(tasks.error)}</p>
+        // まだ取得していないページで失敗した場合も、再試行できるようにする
+        <>
+          <p role="alert">{errorMessage(tasks.error)}</p>
+          <button type="button" className="secondary" onClick={() => void tasks.refetch()}>
+            再読み込み
+          </button>
+        </>
       ) : (
         <>
           {/* 取得済みの一覧がある場合は、再取得に失敗しても一覧を残し、エラーを併記する */}
           {tasks.isError && <p role="alert">{errorMessage(tasks.error)}</p>}
           {tasks.data.items.length === 0 ? (
-            <p>{filtered ? "条件に一致する Task はありません" : "Task はまだありません"}</p>
+            <p>
+              {tasks.data.total > 0
+                ? // 表示中に最後のページの Task が無くなった場合など
+                  "このページに Task はありません"
+                : filtered
+                  ? "条件に一致する Task はありません"
+                  : "Task はまだありません"}
+            </p>
           ) : (
             <table aria-busy={tasks.isPlaceholderData}>
               <thead>
@@ -106,7 +125,8 @@ export function ProjectTasks({ project }: { project: Project }) {
           )}
           <Pagination
             total={tasks.data.total}
-            offset={filters.offset}
+            // 表示中の結果(ページを移る間は前の結果)に合わせる
+            offset={tasks.data.offset}
             count={tasks.data.items.length}
             disabled={tasks.isPlaceholderData}
             onChange={(offset) => setFilters({ ...filters, offset })}
@@ -170,16 +190,16 @@ type PaginationProps = {
 
 function Pagination({ total, offset, count, disabled, onChange }: PaginationProps) {
   if (total <= taskPageSize && offset === 0) return null;
+  // 最後のページの先頭(表示中に件数が減って、範囲外のページにいる場合の戻り先)
+  const lastOffset = Math.max(0, Math.floor((total - 1) / taskPageSize) * taskPageSize);
   return (
     <nav aria-label="ページ">
-      <p>
-        全 {total} 件中 {count === 0 ? 0 : offset + 1}〜{offset + count} 件
-      </p>
+      <p>{count === 0 ? `全 ${total} 件` : `全 ${total} 件中 ${offset + 1}〜${offset + count} 件`}</p>
       <div role="group">
         <button
           type="button"
           className="secondary"
-          onClick={() => onChange(Math.max(0, offset - taskPageSize))}
+          onClick={() => onChange(Math.max(0, Math.min(offset - taskPageSize, lastOffset)))}
           disabled={disabled || offset === 0}
         >
           前へ

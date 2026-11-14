@@ -1,7 +1,7 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "./client";
-import { unwrap } from "./errors";
+import { ApiError, unwrap } from "./errors";
 import { projectKeys, refreshDetailOnStaleError } from "./projects";
 import type { components } from "./schema.gen";
 
@@ -21,14 +21,22 @@ export type TaskFilters = {
 // プロジェクト内の Task 一覧(更新日時の降順。並び順は Backend が決める)。
 // ページや絞り込みを変えている間は、前の結果を表示したままにする。
 export function useProjectTasks(projectId: number, { status, assigneeId, offset }: TaskFilters) {
+  const queryClient = useQueryClient();
+  const query = { status, assigneeId, limit: taskPageSize, offset };
   return useQuery({
-    queryKey: [...projectKeys.tasks(projectId), { status, assigneeId, offset }],
-    queryFn: () =>
-      unwrap(
-        api.GET("/api/projects/{projectId}/tasks", {
-          params: { path: { projectId }, query: { status, assigneeId, limit: taskPageSize, offset } },
-        }),
-      ),
+    queryKey: [...projectKeys.tasks(projectId), query],
+    queryFn: async () => {
+      try {
+        return await unwrap(api.GET("/api/projects/{projectId}/tasks", { params: { path: { projectId }, query } }));
+      } catch (error) {
+        // 削除された・メンバーから外された(404)場合は、詳細を取り直して画面全体を「見つからない」にする
+        // (メンバー一覧と同じ。exact にして、Task 一覧自体は取り直さない)。
+        if (error instanceof ApiError && error.status === 404) {
+          void queryClient.invalidateQueries({ queryKey: projectKeys.detail(projectId), exact: true });
+        }
+        throw error;
+      }
+    },
     placeholderData: keepPreviousData,
   });
 }

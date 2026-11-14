@@ -85,7 +85,11 @@ export function useRemoveMember(projectId: number, { onLeft }: { onLeft: () => v
         queryClient.removeQueries({ queryKey: projectKeys.detail(projectId) });
         return queryClient.invalidateQueries({ queryKey: projectKeys.lists() });
       }
-      return queryClient.invalidateQueries({ queryKey: projectKeys.members(projectId) });
+      // 外したメンバーが担当していた Task は Backend で担当が解除されるため、Task 一覧も取り直す。
+      return Promise.all([
+        queryClient.invalidateQueries({ queryKey: projectKeys.members(projectId) }),
+        queryClient.invalidateQueries({ queryKey: projectKeys.tasks(projectId) }),
+      ]);
     },
     onError: refreshDetailOnStaleError(queryClient, projectId),
   });
