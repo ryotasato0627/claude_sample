@@ -20,6 +20,7 @@ export const taskKeys = {
   all: ["tasks"] as const,
   detail: (taskId: number) => [...taskKeys.all, "detail", taskId] as const,
   comments: (taskId: number) => [...taskKeys.detail(taskId), "comments"] as const,
+  search: (query: object) => [...taskKeys.all, "search", query] as const,
 };
 
 // 1 ページの件数(API の既定値と同じ)。
@@ -151,5 +152,25 @@ export function useDeleteTask(taskId: number, projectId: number, { onDeleted }: 
       return queryClient.invalidateQueries({ queryKey: projectKeys.tasks(projectId) });
     },
     onError: refreshTaskOnStaleError(queryClient, taskId, projectId),
+  });
+}
+
+export type TaskSearchFilters = {
+  q?: string;
+  projectId?: number;
+  status?: TaskStatus;
+  assigneeId?: number;
+  offset: number;
+};
+
+// Task 検索(自分が所属するプロジェクトの Task のみ。更新日時の降順。絞り込みと並び順は Backend が決める)。
+// ページや条件を変えている間は、前の結果を表示したままにする。
+// 他の画面での変更(更新・削除など)では無効化しない。検索画面を開くたびに取り直す(staleTime が既定の 0)ことに依存する。
+export function useSearchTasks({ q, projectId, status, assigneeId, offset }: TaskSearchFilters) {
+  const query = { q, projectId, status, assigneeId, limit: taskPageSize, offset };
+  return useQuery({
+    queryKey: taskKeys.search(query),
+    queryFn: () => unwrap(api.GET("/api/tasks/search", { params: { query } })),
+    placeholderData: keepPreviousData,
   });
 }
