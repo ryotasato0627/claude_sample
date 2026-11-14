@@ -1,0 +1,35 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(.env)",
+      "Read(*.env)",
+      "Bash(cat *.env*)",
+      "Bash(head *.env*)",
+      "Bash(tail *.env*)",
+      "Bash(less *.env*)",
+      "Bash(more *.env*)",
+      "Bash(grep *.env*)",
+      "Bash(sed *.env*)",
+      "Bash(awk *.env*)",
+      "Bash(vim *.env*)",
+      "Bash(nano *.env*)",
+      "Bash(bat *.env*)",
+      "Bash(git push --force*)",
+      "Bash(git push -f*)",
+      "Bash(git push * --force*)",
+      "Bash(git push * -f*)"
+    ],
+    "allow": [
+      "Bash(rm tmp/*)",
+      "Bash(rm -r tmp/*)",
+      "Bash(rm -rf tmp/*)",
+      "Bash(gh auth status)",
+      "Bash(gh pr view *)",
+      "Bash(bash .claude/skills/address-pr/scripts/fetch-threads.sh *)",
+      "Bash(bash .claude/skills/address-pr/scripts/reply-resolve.sh *)"
+    ],
+    "ask": [
+      "Bash(rm *)"
+    ]
+  }
+}

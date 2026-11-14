@@ -1,0 +1,284 @@
+# 要件定義
+
+Claude Code の Skill / Agent を使った開発ワークフローを試すためのサンプルアプリ(タスク管理)。
+
+## 1. 技術スタック(確定)
+
+| 領域 | 採用 | 理由 |
+|---|---|---|
+| Backend | Go + Gin | - |
+| Frontend | TypeScript + React + Vite + TanStack Query | 状態管理を過剰に複雑化しない |
+| DB | PostgreSQL | - |
+| DBアクセス | `database/sql` + sqlc | SQLが明示的で、Repository層の責務が分かりやすい |
+| Migration | golang-migrate | Go では定番。Migration 自体を Skill の題材にできる |
+| API仕様 | OpenAPI(`api/openapi.yaml`) | Backend / Frontend / Agent 間の共通仕様。唯一の正とする |
+| 認証 | メール+パスワード、JWT | - |
+| 権限 | プロジェクト単位ロール | - |
+| 実行環境 | Docker / Docker Compose | 第9章 |
+| リポジトリ構成 | モノレポ(`backend/` + `frontend/`) | PoC として扱いやすい |
+| Skill/Agent の用途 | 開発ワークフロー(アプリ機能への組み込みはしない) | - |
+
+## 2. ロール
+
+プロジェクトごとに以下のいずれかを持つ。プロジェクト作成者は Owner になる。
+
+| 操作 | Owner | Member | Viewer |
+|---|:-:|:-:|:-:|
+| プロジェクト閲覧・Task検索 | ○ | ○ | ○ |
+| Task作成・編集 | ○ | ○ | - |
+| ステータス変更 | ○ | ○ | - |
+| 担当者変更 | ○ | ○ | - |
+| コメント投稿 | ○ | ○ | - |
+| コメント編集・削除 | 全件 | 自分のみ | - |
+| Task削除 | ○ | - | - |
+| メンバー追加・ロール変更・削除 | ○ | - | - |
+| プロジェクト編集・削除 | ○ | - | - |
+
+- プロジェクトには Owner が常に1人以上いる(最後の Owner は降格・退出不可)。
+
+## 3. 機能要件
+
+### 3.1 ユーザー登録・認証
+- 登録項目: メールアドレス(一意)、表示名、パスワード(8文字以上・72バイト以下。下限は文字数、上限は bcrypt の入力上限に合わせてバイト数。bcryptでハッシュ化)
+- ログイン成功で JWT(アクセストークン)を返す。有効期限は 24 時間(リフレッシュトークンは対象外)
+- 認証が必要な API は `Authorization: Bearer <token>`
+
+### 3.2 プロジェクト
+- 作成・一覧(自分が所属するもののみ)・詳細・更新・削除
+- メンバー管理: メールアドレスで登録済みユーザーを追加、ロール変更、削除
+
+### 3.3 Task
+- 項目: タイトル(必須)、説明、ステータス、担当者(任意・1人)、作成者、作成/更新日時
+- ステータス: `todo` / `in_progress` / `done`(3種類、遷移は自由。権限検証に集中するためワークフロー制御は入れない)
+- 担当者にできるのは、そのプロジェクトのメンバーのみ(Viewer も可)
+
+### 3.4 コメント
+- Task に対する時系列のコメント(本文のみ、テキスト)
+
+### 3.5 Task検索
+- 条件: キーワード(タイトル・説明の部分一致)、ステータス、担当者、プロジェクト
+- 自分が所属するプロジェクトの Task のみが対象
+- ページネーション(limit/offset)、並び順は更新日時の降順
+
+## 4. API概要
+
+正は `api/openapi.yaml`(実装済み)。追加・変更時は OpenAPI を先に更新し、コードを再生成する。
+
+| メソッド・パス | 内容 | 必要なロール |
+|---|---|---|
+| `GET /api/health` | ヘルスチェック(DB 疎通を含む) | 認証不要 |
+| `POST /api/auth/register` | ユーザー登録 | 認証不要 |
+| `POST /api/auth/login` | ログイン(JWT 発行) | 認証不要 |
+| `GET /api/projects` | 自分が所属するプロジェクト一覧 | ログイン済み |
+| `POST /api/projects` | プロジェクト作成(作成者は owner) | ログイン済み |
+| `GET /api/projects/{projectId}` | 詳細 | 全ロール |
+| `PATCH` / `DELETE /api/projects/{projectId}` | 更新 / 削除 | owner |
+| `GET /api/projects/{projectId}/members` | メンバー一覧 | 全ロール |
+| `POST /api/projects/{projectId}/members` | メンバー追加(メールアドレスで指定) | owner |
+| `PATCH` / `DELETE /api/projects/{projectId}/members/{userId}` | ロール変更 / 削除 | owner |
+| `GET /api/projects/{projectId}/tasks` | Task 一覧(絞り込み・ページネーション) | 全ロール |
+| `POST /api/projects/{projectId}/tasks` | Task 作成 | owner / member |
+| `GET /api/tasks/search` | Task 検索(所属プロジェクトのみ) | ログイン済み |
+| `GET /api/tasks/{taskId}` | Task 詳細 | 全ロール |
+| `PATCH /api/tasks/{taskId}` | タイトル・説明の更新 | owner / member |
+| `PATCH /api/tasks/{taskId}/status` | ステータス変更 | owner / member |
+| `PATCH /api/tasks/{taskId}/assignee` | 担当者変更(`null` で解除) | owner / member |
+| `DELETE /api/tasks/{taskId}` | Task 削除 | owner |
+| `GET /api/tasks/{taskId}/comments` | コメント一覧(古い順) | 全ロール |
+| `POST /api/tasks/{taskId}/comments` | コメント投稿 | owner / member |
+| `PATCH` / `DELETE /api/comments/{commentId}` | コメント編集 / 削除 | owner は全件、member は自分のみ |
+
+### 共通の規約
+
+| ステータス | 意味 |
+|---|---|
+| `400` | リクエストの形式が不正(JSON の構文・型、パスやクエリの型) |
+| `401` | 未認証、またはトークンが不正・期限切れ(`WWW-Authenticate: Bearer` を付ける)。パラメータの形式検証(400)より**先**に判定する |
+| `403` | プロジェクトのメンバーだが、ロールの権限が足りない |
+| `404` | 存在しない、**またはメンバーではないプロジェクトのリソース**(存在を知らせない) |
+| `409` | 競合(メールの重複、既にメンバー、最後の owner の降格・削除) |
+| `413` | リクエストボディが 1MiB 超 |
+| `422` | 入力値の検証エラー(必須・長さ・形式・不正な列挙値・NUL 文字・担当者がメンバーでない・未登録のメールでのメンバー追加・`assigneeId` の省略 など) |
+
+- エラー本文は `{"code": "...", "message": "..."}`。想定外のエラー(500)は内容を返さない。
+- 部分更新(`PATCH`)は、指定した項目だけを変更する。未指定は変更なし、`description: ""` は空にする。更新は SQL で項目単位に行い、別項目の同時更新が互いを消さない。
+- `PATCH /api/tasks/{taskId}/assignee` は `assigneeId` が必須。`null` で解除、**省略は 422**(クライアントのバグで、黙って担当が外れないようにする)。
+- 検索・一覧の `limit` は 1〜100(未指定なら 20。`0` は範囲外で 422)、`offset` は 0〜2147483647。応答は `{items, total, limit, offset}`(`total` はページネーション前の件数)。
+- メンバーをプロジェクトから外すと、そのプロジェクトで担当していた Task の担当は解除される。
+- 認証が不要なルートは `publicPaths`(`backend/internal/handler/http.go`)と OpenAPI の `security: []` の両方に書く。両者の一致は `spec_test.go` が検査する。
+
+## 5. データモデル(案)
+
+- users(id, email, name, password_hash, created_at)
+- projects(id, name, description, created_at)
+- project_members(project_id, user_id, role)  ※ role: owner / member / viewer
+- tasks(id, project_id, title, description, status, assignee_id, created_by, created_at, updated_at)
+- comments(id, task_id, user_id, body, created_at, updated_at)
+
+## 6. 非機能・スコープ外
+- スコープ外: メール通知、ファイル添付、リフレッシュトークン、ラベル/期限、リアルタイム更新、外部IdP
+- テスト: Backend は Go 標準の testing(権限チェックを重点的に)、Frontend は Vitest 程度
+
+## 7. Skill / Agent 構成
+
+開発ワークフローで使う。まず以下の 4 Agent + 3 Skill で開始し、実際に使って不足を見つける(最初から細分化しない)。
+
+**Agents**(`.claude/agents/`)
+- `backend-dev`: Gin のハンドラ/サービス/リポジトリ実装、sqlc クエリ、マイグレーション作成。第7.1章の依存ルールを厳守する(作成済み)
+- `frontend-dev`: React 画面・API クライアント実装(作成済み)
+- `test-writer`: 権限(操作 × ロール)を中心にテスト追加。プロダクションコードは変更しない(作成済み)
+- `reviewer`: 差分を要件(本書)・OpenAPI・権限マトリクス・依存の向きに照らしてレビュー。コードは変更しない(作成済み)
+
+`coder` は Backend / Frontend で責務・ルール・実行コマンドが異なるため、`backend-dev` と `frontend-dev` に分割した。
+
+**Skills**
+- `add-endpoint`: 新規エンドポイント追加の手順(OpenAPI → コード生成 → domain → service → repository → handler → テスト)。作成済み
+- `add-migration`: golang-migrate によるマイグレーションファイルの作成規約。作成済み
+- `pr-review`: レビュー用 Skill(作成済み。`reviewer` Agent から利用する)
+
+### 7.1 Backend アーキテクチャ(依存性逆転)
+
+依存は常に外側から内側へ向ける。具体実装ではなく抽象に依存する。
+
+```
+cmd/server (composition root)
+   ├─ handler ─────────▶ service ─────────▶ domain
+   │                        ▲
+   └─ repository/infra ─────┘  (service が定義した interface を実装する)
+```
+
+| 層 | 責務 | import してよいもの |
+|---|---|---|
+| `domain` | エンティティ、ロール、権限判定(Policy) | 標準ライブラリのみ |
+| `service` | ユースケース。必要な port(interface)をここで定義する | `domain` |
+| `handler` | gin による入出力変換。`service` を自パッケージ定義の interface 越しに利用 | `domain`、gin |
+| `repository` | port の実装(`database/sql` + sqlc)。sqlc の型を外に出さず `domain` へ変換して返す | `domain`、`service` の port |
+| `infra` | JWT、パスワードハッシュ、Clock など port の実装 | `domain`、`service` の port |
+| `cmd/server` | 具体実装の生成と注入(組み立てはここだけ) | すべて |
+
+ルール:
+1. interface は使う側のパッケージで定義する(Go の慣習。`repository` 側に interface を置かない)。
+2. `service` は `repository` / `infra` / `handler` / gin / `database/sql` / DB ドライバ(pgx)/ `x/crypto` / jwt / sqlc 生成コードを import しない。
+3. `*gin.Context` は `handler` の外に渡さない。`handler` は `service` を import せず、自パッケージ(`deps.go`)の interface に依存する。
+4. 時刻・ハッシュ・JWT・ID 生成は port 経由。`service` から `time.Now()` やライブラリを直接呼ばない。
+5. `init()`・グローバル変数・シングルトンで依存を保持しない。コンストラクタで注入する(interface を受け取り、具体型を返す)。
+6. 権限チェックは `service`(domain の Policy)に集約する。
+7. `service` のテストは fake を注入して DB なしで書く。`repository` のみ実 DB でテストする。
+8. 上記の依存方向は `golangci-lint` の `depguard` で機械的に検査し、CI で失敗させる。
+
+## 8. 開発ルール
+- ブランチ戦略: `docs/development/branching-strategy.md`(Git Flow)
+- PR: `docs/development/pull-request.md`
+
+## 9. Docker化
+
+開発・実行・テスト・コード生成をすべてコンテナ内で完結させ、ホストには Docker だけあれば動くようにする。
+
+### 9.1 構成(`compose.yaml`)
+
+| サービス | 役割 | ポート |
+|---|---|---|
+| `db` | PostgreSQL 17(named volume で永続化、healthcheck あり) | 5433(ホスト側。`.env` の `DB_PORT`。ローカルの 5432 と衝突しないよう既定を変更) |
+| `migrate` | golang-migrate を実行して終了する one-shot(既定コマンドは `up`)。`db` が healthy になってから起動。`run --rm migrate down 1` のように引数だけ差し替えられる | - |
+| `backend` | Gin API。開発時はホットリロード(air)。`migrate` の完了後に起動 | 8080 |
+| `frontend` | Vite dev server。`/api` は backend へプロキシ | 5173 |
+| `sqlc` | コード生成ツール。`tools` profile のため `up` では起動しない(`docker compose run --rm sqlc generate`) | - |
+
+- `docker compose up` だけで、DB 起動 → マイグレーション → API/画面の起動まで通る。
+- サービス間通信はコンテナ名(`db`、`backend`)で行う。
+- リポジトリ全体を `/workspace` に bind mount する(`api/openapi.yaml` を Backend / Frontend の両方から参照するため)。`node_modules`、Go のモジュール/ビルドキャッシュは named volume に置く。
+- コンテナ内ユーザーの UID/GID は `.env` の `HOST_UID` / `HOST_GID` で合わせ、生成ファイルが root 所有にならないようにする。
+
+### 9.2 Dockerfile
+- `backend/Dockerfile`、`frontend/Dockerfile` はマルチステージ。`dev` ターゲット(ソースを volume マウント)と `prod` ターゲット(Go は静的バイナリを distroless/alpine に、フロントは nginx で静的配信)を持つ。
+- ルートの `.dockerignore` と各ディレクトリの `.dockerignore` で `.env`、`node_modules`、ビルド成果物を除外する。
+- Backend は Go 1.25(gin / pgx の要求)。`prod` は distroless(約 18MB)、Frontend の `prod` は nginx(`/api` は `backend:8080` へプロキシ)。
+- `dev` ターゲットの Frontend は、起動時に `package-lock.json` と `node_modules` を比較し、必要な場合だけ `npm ci` する。
+
+### 9.3 設定と秘密情報
+- 設定は環境変数で渡す。`.env.example` に必要なキー(`POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` / `JWT_SECRET` / 各ポート / `HOST_UID` / `HOST_GID`)を列挙し、`.env` は Git 管理外(`make env` で作成)。`DATABASE_URL` は `compose.yaml` が `POSTGRES_*` から組み立てて Backend / migrate に渡す。
+- 秘密情報をイメージや Dockerfile に焼き込まない。
+
+### 9.4 コンテナ内で実行するコマンド
+ホストに Go / Node / sqlc などを入れなくてよいよう、`Makefile` から `docker compose run --rm` 経由で実行する。
+
+| 目的 | 例 |
+|---|---|
+| 起動 / 停止 | `make up` / `make down` |
+| テスト | `make test`(個別: `docker compose run --rm backend go test ./...` / `docker compose run --rm frontend npm test`) |
+| lint・型チェック | `make lint`(`go vet` / `golangci-lint`(depguard 含む) / `eslint` / `tsc`) |
+| コード生成 | `make generate`(sqlc → oapi-codegen → openapi-typescript) |
+| マイグレーション追加 | `docker compose run --rm migrate create -ext sql -dir /migrations -seq <name>` |
+| マイグレーション適用 / 1つ戻す | `make migrate-up` / `make migrate-down` |
+| prod イメージのビルド | `make build-prod` |
+
+- oapi-codegen は `go.mod` の `tool` ディレクティブで固定し、`go tool oapi-codegen` で実行する。設定は `backend/oapi-codegen.yaml`。
+- 生成物(`api.gen.go` / `schema.gen.ts` / `sqlcgen/`)はコミットし、CI で再生成の差分を検査する。
+
+### 9.5 CI(GitHub Actions)
+- 実行基盤は GitHub Actions。ローカルと環境差が出ないよう、同じ Dockerfile / compose でテストを実行する。
+- トリガー: `develop` / `main` 向けの Pull Request と、それらへの push(ブランチ戦略に従う)。
+- ワークフロー(`.github/workflows/`):
+
+| ジョブ | 内容 |
+|---|---|
+| `backend` | `go vet`、`golangci-lint`(`depguard` による依存方向チェックを含む)、`go test ./...`(`db` サービスを使用) |
+| `frontend` | `typecheck`、`lint`、`test`、`build` |
+| `codegen-check` | sqlc / oapi-codegen / openapi-typescript を再実行し、生成物に差分が出ないことを確認(OpenAPI・SQL と生成コードのずれを防ぐ) |
+| `docker-build` | `prod` ターゲットのイメージがビルドできることを確認 |
+
+- CI の成功は PR マージの必須条件(`docs/development/pull-request.md` 参照)。
+
+## 10. ディレクトリ構成
+
+```
+.
+├── api/openapi.yaml
+├── backend/
+│   ├── Dockerfile
+│   ├── cmd/server/         # composition root(app.go の newRouter)
+│   ├── internal/
+│   │   ├── domain/        # エンティティ・ロール・Policy(依存なし)
+│   │   ├── service/       # ユースケース + port(interface)定義
+│   │   ├── handler/       # gin ハンドラ・ミドルウェア(openapi/ は生成コード)
+│   │   ├── repository/    # sqlc を使った port 実装(sqlcgen/ は生成コード)
+│   │   └── infra/         # JWT・ハッシュ・Clock などの port 実装
+│   ├── db/{migrations,queries}/
+│   ├── .golangci.yml      # depguard で依存方向を検査
+│   ├── oapi-codegen.yaml
+│   └── sqlc.yaml
+├── frontend/
+│   ├── Dockerfile
+│   └── src/               # api/client.ts(JWT付与・401処理)、api/schema.gen.ts(生成)
+├── compose.yaml
+├── Makefile
+├── .env.example
+├── .github/workflows/
+├── docs/{spec,development}/
+├── CLAUDE.md              # Claude Code の共通ルール
+└── .claude/{agents,skills,rules,settings.json}
+```
+
+## 11. 実装状況
+- 第4章の API はすべて実装済み(Backend)。`domain` / `service` / `handler` / `repository` / `infra` は第7.1章の依存方向に従う(depguard で検査)。
+- テスト: `domain`(権限判定)、`service`(fake 注入。権限マトリクスの全組み合わせ)、`handler`(認証・エラー変換・入力の異常系・OpenAPI との整合)、`repository`(実 DB。一時スキーマで分離)、`cmd/server`(実 DB を使った E2E)。
+- Frontend は、API の型(`src/api/schema.gen.ts`)を生成済み。画面は `docs/development/plans/frontend-screens.md` の計画に沿って実装した。
+  - 実装済み: ユーザー登録、ログイン、ログアウト、未ログイン時のログイン画面へのリダイレクト。
+  - 実装済み: 所属プロジェクトの一覧(名前・説明・自分のロール)と作成(`/projects`。ナビゲーションから移動する)。作成後は一覧を Backend から取り直す(`src/api/projects.ts`)。
+  - 実装済み: プロジェクトの詳細(`/projects/:projectId`。一覧の名前から移動する)、編集・削除(owner のみ表示)。編集は変更した項目だけを送る。ロールによる表示の出し分けは `src/auth/permissions.ts` に集約する(権限マトリクスの全組み合わせをテスト)。
+  - 実装済み: メンバー管理(プロジェクト詳細の「メンバー」)。一覧は全ロールに表示し、追加・ロール変更・削除は owner のみ表示する。自分を降格したら詳細を取り直し、自分を外したら一覧へ移動する。メンバー一覧の Query のキーは詳細の下に置き、詳細を取り直す・消すときに一緒に扱う(`src/api/members.ts`)。
+  - 実装済み: Task 一覧(プロジェクト詳細の「Task」。全ロール)と作成(owner / member のみ表示)。ステータス・担当者で絞り込み、20 件ずつページネーションする。担当者の名前と選択肢はメンバー一覧を使う。Task 一覧の Query のキーも詳細の下に置く(`src/api/tasks.ts`)。
+  - 実装済み: Task 詳細(`/tasks/:taskId`。Task 一覧のタイトルから移動する。全ロール)。タイトル・説明の編集、ステータス・担当者の変更は owner / member のみ表示する。ロールと担当者の候補は Task が属するプロジェクトから取得する。担当の解除は `assigneeId: null` を明示して送る。削除は owner のみ表示し、削除後はプロジェクトの Task 一覧へ戻る。
+  - 実装済み: コメント(Task 詳細の「コメント」)。一覧は全ロール(投稿の古い順。投稿者の名前はメンバー一覧から引く)。投稿は owner / member、編集・削除は owner は全件・member は自分のコメントのみ表示する。コメント一覧の Query のキーは Task 詳細の下に置く(`src/api/comments.ts`)。
+  - 実装済み: Task 検索(`/tasks`。ナビゲーションから移動する。全ロール)。キーワード・プロジェクト・ステータス・担当者で検索し、20 件ずつページネーションする。担当者の候補は選んだプロジェクトのメンバー。結果の担当者名は、結果に含まれる各プロジェクトのメンバー一覧から引く。
+  - 現在のユーザーを返す API は無いため、ログイン応答の `user` と `expiresAt` をトークンと一緒に `localStorage` に保存する(`src/auth/session.ts`)。有効期限が来たとき、または現在のトークンで送ったリクエストが 401 になったとき(`src/api/client.ts`)に消す。形が不正な保存値は破棄し、他のタブでのログイン・ログアウトも反映する。セッションのユーザーが変わったら、Query のキャッシュを消す(`src/auth/cache.ts`)。
+  - 有効期限は、サーバーが返した `expiresAt` とクライアントの時計を比べて判定する。クライアントの時計のずれはスコープ外とする(時計が進んでいると、その分だけ早くログアウトされる)。
+- 並行実行時の整合性(実 DB で並行テスト済み):
+  - 最後の owner の降格・削除は、repository が owner の行を `FOR UPDATE` でロックして原子的に判定する(service の事前チェックは早期エラー用)。
+  - 担当者の指定は、メンバーの行を `FOR SHARE` でロックしてから更新する。並行するメンバー削除があっても、メンバーでない担当者は残らない。
+  - 部分更新は SQL の `COALESCE` で項目単位に更新する。
+- ログインは、メールが存在しない場合もダミーのパスワード比較を行い、応答時間の差からメールの有無を推測されにくくしている(完全な対策ではない)。
+- 既知の制約(スコープ外): ログインの試行回数制限、CORS、トークンの失効(ログアウト)。
+
+## 12. 未決事項
+なし
