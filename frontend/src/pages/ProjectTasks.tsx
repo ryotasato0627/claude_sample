@@ -34,10 +34,17 @@ export function ProjectTasks({ project }: { project: Project }) {
   const tasks = useProjectTasks(project.id, filters);
   // 担当者の名前と絞り込みの選択肢に使う(メンバーの節と同じキャッシュ)。
   const members = useMembers(project.id);
-  const deleted = deletedTaskTitle(useLocation().state);
+  // 削除した旨は、この節で次の操作(絞り込み・ページ移動・作成)をするまで表示する。
+  const deletedTitle = deletedTaskTitle(useLocation().state);
+  const [operated, setOperated] = useState(false);
+  const deleted = operated ? undefined : deletedTitle;
+  const changeFilters = (next: TaskFilters) => {
+    setOperated(true);
+    setFilters(next);
+  };
 
   // 絞り込みを変えたら 1 ページ目に戻す。
-  const changeFilter = (change: Omit<TaskFilters, "offset">) => setFilters({ ...filters, ...change, offset: 0 });
+  const changeFilter = (change: Omit<TaskFilters, "offset">) => changeFilters({ ...filters, ...change, offset: 0 });
   const filtered = filters.status !== undefined || filters.assigneeId !== undefined;
   const selectedAssigneeMissing =
     filters.assigneeId !== undefined && !members.data?.some((member) => member.userId === filters.assigneeId);
@@ -135,13 +142,13 @@ export function ProjectTasks({ project }: { project: Project }) {
             offset={tasks.data.offset}
             count={tasks.data.items.length}
             disabled={tasks.isPlaceholderData}
-            onChange={(offset) => setFilters({ ...filters, offset })}
+            onChange={(offset) => changeFilters({ ...filters, offset })}
           />
         </>
       )}
       {/* 作成した Task が見えるよう、絞り込みを外して 1 ページ目に戻す */}
       {can(project.role, "writeTask") && (
-        <CreateTaskForm projectId={project.id} onCreated={() => setFilters({ offset: 0 })} />
+        <CreateTaskForm projectId={project.id} onCreated={() => changeFilters({ offset: 0 })} />
       )}
     </section>
   );
