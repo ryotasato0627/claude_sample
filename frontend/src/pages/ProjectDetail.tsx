@@ -10,33 +10,19 @@ import {
   useUpdateProject,
 } from "../api/projects";
 import { can } from "../auth/permissions";
+import { NotFound } from "../components/NotFound";
 import { roleLabels } from "../components/roleLabels";
 import { ProjectMembers } from "./ProjectMembers";
 import { ProjectTasks } from "./ProjectTasks";
+import { parseId } from "./routeParams";
 
 const notFoundMessage = "プロジェクトが見つかりません";
 
-// URL の projectId は外部入力のため、正の整数(JS で正確に扱える範囲)だけを受け付ける。
-function parseProjectId(value: string | undefined): number | undefined {
-  if (!value || !/^[1-9]\d*$/.test(value)) return undefined;
-  const id = Number(value);
-  return Number.isSafeInteger(id) ? id : undefined;
-}
-
 export function ProjectDetail() {
-  const projectId = parseProjectId(useParams().projectId);
+  const projectId = parseId(useParams().projectId);
   if (projectId === undefined) return <NotFound message={notFoundMessage} />;
   // プロジェクトを移動したら、編集中の状態などを引き継がない。
   return <ProjectView key={projectId} projectId={projectId} />;
-}
-
-function NotFound({ message }: { message: string }) {
-  return (
-    <>
-      <p role="alert">{message}</p>
-      <Link to="/projects">プロジェクト一覧へ戻る</Link>
-    </>
-  );
 }
 
 function ProjectView({ projectId }: { projectId: number }) {
