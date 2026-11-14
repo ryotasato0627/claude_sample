@@ -1,12 +1,13 @@
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "./client";
 import { unwrap } from "./errors";
-import { projectKeys } from "./projects";
+import { projectKeys, refreshDetailOnStaleError } from "./projects";
 import type { components } from "./schema.gen";
 
 export type Task = components["schemas"]["Task"];
 export type TaskStatus = components["schemas"]["TaskStatus"];
+type CreateTaskRequest = components["schemas"]["CreateTaskRequest"];
 
 // 1 ページの件数(API の既定値と同じ)。
 export const taskPageSize = 20;
@@ -29,5 +30,17 @@ export function useProjectTasks(projectId: number, { status, assigneeId, offset 
         }),
       ),
     placeholderData: keepPreviousData,
+  });
+}
+
+// Task 作成(owner / member)。作成後は Task 一覧(全ページ・全絞り込み)を取り直す。
+// 権限が変わった(403)・プロジェクトが無くなった(404)場合は詳細を取り直す。
+export function useCreateTask(projectId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: CreateTaskRequest) =>
+      unwrap(api.POST("/api/projects/{projectId}/tasks", { params: { path: { projectId } }, body })),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: projectKeys.tasks(projectId) }),
+    onError: refreshDetailOnStaleError(queryClient, projectId),
   });
 }

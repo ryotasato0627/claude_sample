@@ -254,3 +254,119 @@ describe("Task のページネーション", () => {
     expect(section.queryByRole("navigation", { name: "ページ" })).not.toBeInTheDocument();
   });
 });
+
+describe("Task 作成", () => {
+  // 詳細画面にはプロジェクトの説明もあるため、作成フォームの中で探す。
+  function createForm() {
+    return within(screen.getByRole("form", { name: "Task を作成" }));
+  }
+
+  function submitCreate(title: string, description: string) {
+    fireEvent.change(screen.getByLabelText("タイトル"), { target: { value: title } });
+    fireEvent.change(createForm().getByLabelText("説明"), { target: { value: description } });
+    fireEvent.click(screen.getByRole("button", { name: "作成する" }));
+  }
+
+  // 権限マトリクス: Task 作成は owner / member のみ
+  it.each(["owner", "member"] as const)("%s には作成フォームを表示する", async (role) => {
+    mockGet({ detail: ok(project(role)) });
+    renderApp();
+    const section = await tasksSection();
+
+    expect(section.getByRole("button", { name: "作成する" })).toBeInTheDocument();
+  });
+
+  it("viewer には作成フォームを表示しない", async () => {
+    mockGet({ detail: ok(project("viewer")) });
+    renderApp();
+    const section = await tasksSection();
+    await section.findByText("Task はまだありません");
+
+    expect(section.queryByRole("button", { name: "作成する" })).not.toBeInTheDocument();
+    expect(section.queryByLabelText("タイトル")).not.toBeInTheDocument();
+  });
+
+  it("作成すると、一覧を取り直して表示し、フォームを空にする", async () => {
+    const created = task({ id: 9, title: "新しい Task", description: "説明" });
+    mockGet();
+    vi.mocked(api.POST).mockResolvedValue(ok(created, 201));
+    renderApp();
+    const section = await tasksSection();
+    await section.findByText("Task はまだありません");
+
+    mockGet({ tasks: () => page([created]) });
+    submitCreate("新しい Task", "説明");
+
+    expect(await section.findByRole("status")).toHaveTextContent("「新しい Task」を作成しました");
+    expect(api.POST).toHaveBeenCalledWith("/api/projects/{projectId}/tasks", {
+      params: { path: { projectId: 1 } },
+      body: { title: "新しい Task", description: "説明" },
+    });
+    expect(await section.findByRole("cell", { name: "新しい Task" })).toBeInTheDocument();
+    expect(screen.getByLabelText("タイトル")).toHaveValue("");
+    expect(createForm().getByLabelText("説明")).toHaveValue("");
+  });
+
+  it("作成すると、絞り込みを外して 1 ページ目に戻る", async () => {
+    const created = task({ id: 9, title: "新しい Task" });
+    mockGet();
+    vi.mocked(api.POST).mockResolvedValue(ok(created, 201));
+    renderApp();
+    const section = await tasksSection();
+    fireEvent.change(section.getByLabelText("ステータス"), { target: { value: "done" } });
+    await section.findByText("条件に一致する Task はありません");
+
+    mockGet({ tasks: (query) => page(query.status ? [] : [created]) });
+    submitCreate("新しい Task", "");
+
+    expect(await section.findByRole("cell", { name: "新しい Task" })).toBeInTheDocument();
+    expect(section.getByLabelText("ステータス")).toHaveValue("");
+    expect(taskQueries().at(-1)).toEqual({ status: undefined, assigneeId: undefined, limit: 20, offset: 0 });
+  });
+
+  it("入力値の検証エラー(422)は、詳細を添えて表示し、入力を残す", async () => {
+    mockGet();
+    vi.mocked(api.POST).mockResolvedValue(fail(422, "title is required"));
+    renderApp();
+    await tasksSection();
+
+    submitCreate(" ", "説明");
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("入力内容を確認してください(title is required)");
+    expect(createForm().getByLabelText("説明")).toHaveValue("説明");
+  });
+
+  it("権限が無ければ(403)、詳細を取り直し、作成フォームを表示しない", async () => {
+    mockGet();
+    vi.mocked(api.POST).mockResolvedValue(fail(403));
+    renderApp();
+    await tasksSection();
+
+    mockGet({ detail: ok(project("viewer")) });
+    submitCreate("新しい Task", "");
+
+    expect(await screen.findByText("あなたのロール: 閲覧者")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "作成する" })).not.toBeInTheDocument();
+  });
+
+  it("作成中はボタンを押せない(二重送信の防止)", async () => {
+    mockGet();
+    vi.mocked(api.POST).mockReturnValue(new Promise(() => {}) as never);
+    renderApp();
+    await tasksSection();
+
+    submitCreate("新しい Task", "");
+
+    expect(await screen.findByRole("button", { name: "作成する" })).toBeDisabled();
+  });
+
+  it("タイトルは必須・200 文字以内、説明は 10000 文字以内", async () => {
+    mockGet();
+    renderApp();
+    await tasksSection();
+
+    expect(screen.getByLabelText("タイトル")).toBeRequired();
+    expect(screen.getByLabelText("タイトル")).toHaveAttribute("maxLength", "200");
+    expect(createForm().getByLabelText("説明")).toHaveAttribute("maxLength", "10000");
+  });
+});

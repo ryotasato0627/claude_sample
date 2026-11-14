@@ -148,7 +148,7 @@ function EditProjectForm({ project, onSubmit, onCancel, pending, error }: EditPr
 
   return (
     // maxLength は UTF-16 のコード単位で数えるため、絵文字などを含むと Backend(文字数で数える)より少し厳しくなる
-    <form onSubmit={submit}>
+    <form onSubmit={submit} aria-label="プロジェクトを編集">
       <label>
         名前
         <input name="name" required maxLength={100} defaultValue={project.name} />

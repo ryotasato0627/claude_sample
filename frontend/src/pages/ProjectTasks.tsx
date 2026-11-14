@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { type FormEvent, useState } from "react";
 
 import { errorMessage } from "../api/errors";
 import { type Member, useMembers } from "../api/members";
 import type { Project } from "../api/projects";
-import { type TaskFilters, type TaskStatus, taskPageSize, useProjectTasks } from "../api/tasks";
+import { type TaskFilters, type TaskStatus, taskPageSize, useCreateTask, useProjectTasks } from "../api/tasks";
+import { can } from "../auth/permissions";
 import { taskStatuses, taskStatusLabels } from "../components/taskStatusLabels";
 
 const dateFormat = new Intl.DateTimeFormat("ja-JP", { dateStyle: "short", timeStyle: "short" });
@@ -24,7 +25,8 @@ function assigneeName(assigneeId: number | null, members: Member[] | undefined):
   return members?.find((member) => member.userId === assigneeId)?.name ?? `ユーザー #${assigneeId}`;
 }
 
-// プロジェクト詳細の「Task」。全ロールに一覧を表示する。
+// プロジェクト詳細の「Task」。全ロールに一覧を表示し、作成は owner / member にだけ表示する。
+// UI の出し分けは UX のため。最終的な判定は Backend が行う。
 export function ProjectTasks({ project }: { project: Project }) {
   const [filters, setFilters] = useState<TaskFilters>({ offset: 0 });
   const tasks = useProjectTasks(project.id, filters);
@@ -111,7 +113,50 @@ export function ProjectTasks({ project }: { project: Project }) {
           />
         </>
       )}
+      {/* 作成した Task が見えるよう、絞り込みを外して 1 ページ目に戻す */}
+      {can(project.role, "writeTask") && (
+        <CreateTaskForm projectId={project.id} onCreated={() => setFilters({ offset: 0 })} />
+      )}
     </section>
+  );
+}
+
+function CreateTaskForm({ projectId, onCreated }: { projectId: number; onCreated: () => void }) {
+  const create = useCreateTask(projectId);
+
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
+    create.mutate(
+      { title: String(form.get("title")), description: String(form.get("description")) },
+      {
+        onSuccess: () => {
+          formElement.reset();
+          onCreated();
+        },
+      },
+    );
+  };
+
+  return (
+    // maxLength は UTF-16 のコード単位で数えるため、絵文字などを含むと Backend(文字数で数える)より少し厳しくなる
+    <form onSubmit={submit} aria-labelledby="create-task-heading">
+      <h3 id="create-task-heading">Task を作成</h3>
+      <label>
+        タイトル
+        <input name="title" required maxLength={200} />
+      </label>
+      <label>
+        説明
+        <textarea name="description" maxLength={10000} />
+      </label>
+      {create.isSuccess && <p role="status">「{create.data.title}」を作成しました</p>}
+      {create.isError && <p role="alert">{errorMessage(create.error)}</p>}
+      <button type="submit" disabled={create.isPending} aria-busy={create.isPending}>
+        作成する
+      </button>
+    </form>
   );
 }
 
