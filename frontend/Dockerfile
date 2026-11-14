@@ -1,12 +1,17 @@
 # syntax=docker/dockerfile:1
 
 # ---- dev: Vite dev server(ソースと node_modules はボリューム。起動時に依存を同期する) ----
+# ホスト(CI のランナーを含む)と同じ UID で動かし、マウントしたソースへ書き込めるようにする(backend と同じ)。
 FROM node:22-alpine AS dev
+ARG HOST_UID=1000
+ARG HOST_GID=1000
 WORKDIR /workspace/frontend
-RUN mkdir -p /workspace/frontend/node_modules && chown -R node:node /workspace
+RUN deluser --remove-home node \
+    && addgroup -g ${HOST_GID} dev && adduser -D -u ${HOST_UID} -G dev dev \
+    && mkdir -p /workspace/frontend/node_modules && chown -R dev:dev /workspace
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
-USER node
+USER dev
 ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
 

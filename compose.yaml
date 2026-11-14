@@ -59,6 +59,9 @@ services:
     build:
       context: ./frontend
       target: dev
+      args:
+        HOST_UID: ${HOST_UID:-1000}
+        HOST_GID: ${HOST_GID:-1000}
     environment:
       BACKEND_URL: http://backend:8080
     ports:
