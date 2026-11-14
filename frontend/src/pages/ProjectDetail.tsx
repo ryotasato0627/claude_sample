@@ -12,6 +12,7 @@ import {
 import { can } from "../auth/permissions";
 import { roleLabels } from "../components/roleLabels";
 import { ProjectMembers } from "./ProjectMembers";
+import { ProjectTasks } from "./ProjectTasks";
 
 const notFoundMessage = "プロジェクトが見つかりません";
 
@@ -59,6 +60,7 @@ function ProjectView({ projectId }: { projectId: number }) {
       <p>あなたのロール: {roleLabels[project.data.role]}</p>
       {/* UI の出し分けは UX のため。最終的な判定は Backend が行う */}
       {can(project.data.role, "manageProject") && <ManageProject project={project.data} />}
+      <ProjectTasks project={project.data} />
       <ProjectMembers project={project.data} />
     </>
   );
@@ -146,7 +148,7 @@ function EditProjectForm({ project, onSubmit, onCancel, pending, error }: EditPr
 
   return (
     // maxLength は UTF-16 のコード単位で数えるため、絵文字などを含むと Backend(文字数で数える)より少し厳しくなる
-    <form onSubmit={submit}>
+    <form onSubmit={submit} aria-label="プロジェクトを編集">
       <label>
         名前
         <input name="name" required maxLength={100} defaultValue={project.name} />

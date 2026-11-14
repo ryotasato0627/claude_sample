@@ -11,12 +11,13 @@ type CreateProjectRequest = components["schemas"]["CreateProjectRequest"];
 export type UpdateProjectRequest = components["schemas"]["UpdateProjectRequest"];
 
 // 一覧と詳細でキーを分ける。作成時は一覧だけを取り直す。
-// メンバー一覧は詳細の下に置き、詳細を取り直す・消すときに一緒に扱う。
+// メンバー一覧・Task 一覧は詳細の下に置き、詳細を取り直す・消すときに一緒に扱う。
 export const projectKeys = {
   all: ["projects"] as const,
   lists: () => [...projectKeys.all, "list"] as const,
   detail: (projectId: number) => [...projectKeys.all, "detail", projectId] as const,
   members: (projectId: number) => [...projectKeys.detail(projectId), "members"] as const,
+  tasks: (projectId: number) => [...projectKeys.detail(projectId), "tasks"] as const,
 };
 
 // 自分が所属するプロジェクトの一覧(所属の絞り込みは Backend が行う)。

@@ -53,7 +53,13 @@ function mockGet({
 } = {}) {
   vi.mocked(api.GET).mockImplementation(((path: string) =>
     Promise.resolve(
-      path === "/api/projects/{projectId}/members" ? members : path === "/api/projects" ? list : detail,
+      path === "/api/projects/{projectId}/members"
+        ? members
+        : path === "/api/projects/{projectId}/tasks"
+          ? ok({ items: [], total: 0, limit: 20, offset: 0 })
+          : path === "/api/projects"
+            ? list
+            : detail,
     )) as never);
 }
 
@@ -134,7 +140,9 @@ describe("メンバー一覧の 404", () => {
       Promise.resolve(
         path === "/api/projects/{projectId}/members"
           ? fail(404)
-          : detailCalls++ === 0
+          : path === "/api/projects/{projectId}/tasks"
+            ? ok({ items: [], total: 0, limit: 20, offset: 0 })
+            : detailCalls++ === 0
             ? ok(project("owner"))
             : fail(404),
       )) as never);

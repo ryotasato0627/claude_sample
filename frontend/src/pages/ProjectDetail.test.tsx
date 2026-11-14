@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -37,18 +37,25 @@ function renderApp(path = "/projects/1") {
 
 const alpha = project({ id: 1, name: "Alpha", description: "説明", role: "owner" });
 
-// 詳細は GET /api/projects/{projectId}、一覧は GET /api/projects、メンバー一覧は空で返す。
+// 詳細は GET /api/projects/{projectId}、一覧は GET /api/projects、メンバー・Task の一覧は空で返す。
 function mockGet(detail: unknown, list: unknown = ok([])) {
-  vi.mocked(api.GET).mockImplementation(((path: string) =>
-    Promise.resolve(
-      path === "/api/projects" ? list : path === "/api/projects/{projectId}/members" ? ok([]) : detail,
-    )) as never);
+  const empty: Record<string, unknown> = {
+    "/api/projects": list,
+    "/api/projects/{projectId}/members": ok([]),
+    "/api/projects/{projectId}/tasks": ok({ items: [], total: 0, limit: 20, offset: 0 }),
+  };
+  vi.mocked(api.GET).mockImplementation(((path: string) => Promise.resolve(path in empty ? empty[path] : detail)) as never);
+}
+
+// 詳細画面には Task 作成フォームもあるため、編集フォームの中で探す。
+function editForm() {
+  return within(screen.getByRole("form", { name: "プロジェクトを編集" }));
 }
 
 function submitEdit(name: string, description: string) {
   fireEvent.click(screen.getByRole("button", { name: "編集する" }));
-  fireEvent.change(screen.getByLabelText("名前"), { target: { value: name } });
-  fireEvent.change(screen.getByLabelText("説明"), { target: { value: description } });
+  fireEvent.change(editForm().getByLabelText("名前"), { target: { value: name } });
+  fireEvent.change(editForm().getByLabelText("説明"), { target: { value: description } });
   fireEvent.click(screen.getByRole("button", { name: "保存する" }));
 }
 
@@ -160,7 +167,8 @@ describe("プロジェクト編集", () => {
       params: { path: { projectId: 1 } },
       body: { description: "" },
     });
-    expect(screen.queryByText("説明")).not.toBeInTheDocument();
+    // 説明の段落を表示しない(Task 作成フォームの「説明」ラベルは除く)
+    expect(screen.queryByText("説明", { selector: "p" })).not.toBeInTheDocument();
   });
 
   it("何も変更していなければ、API を呼ばずにフォームを閉じる", async () => {
@@ -198,7 +206,7 @@ describe("プロジェクト編集", () => {
     submitEdit(" ", "説明");
 
     expect(await screen.findByRole("alert")).toHaveTextContent("入力内容を確認してください(name is required)");
-    expect(screen.getByLabelText("名前")).toHaveValue(" ");
+    expect(editForm().getByLabelText("名前")).toHaveValue(" ");
     expect(screen.getByRole("heading", { name: "Alpha", level: 1 })).toBeInTheDocument();
   });
 
@@ -247,7 +255,7 @@ describe("プロジェクト編集", () => {
     mockGet(ok(alpha));
     renderApp();
     fireEvent.click(await screen.findByRole("button", { name: "編集する" }));
-    fireEvent.change(screen.getByLabelText("名前"), { target: { value: "変更" } });
+    fireEvent.change(editForm().getByLabelText("名前"), { target: { value: "変更" } });
     fireEvent.click(screen.getByRole("button", { name: "キャンセル" }));
 
     expect(screen.queryByLabelText("名前")).not.toBeInTheDocument();
@@ -272,11 +280,11 @@ describe("プロジェクト編集", () => {
     renderApp();
     fireEvent.click(await screen.findByRole("button", { name: "編集する" }));
 
-    expect(screen.getByLabelText("名前")).toBeRequired();
-    expect(screen.getByLabelText("名前")).toHaveAttribute("maxLength", "100");
-    expect(screen.getByLabelText("名前")).toHaveValue("Alpha");
-    expect(screen.getByLabelText("説明")).toHaveAttribute("maxLength", "2000");
-    expect(screen.getByLabelText("説明")).toHaveValue("説明");
+    expect(editForm().getByLabelText("名前")).toBeRequired();
+    expect(editForm().getByLabelText("名前")).toHaveAttribute("maxLength", "100");
+    expect(editForm().getByLabelText("名前")).toHaveValue("Alpha");
+    expect(editForm().getByLabelText("説明")).toHaveAttribute("maxLength", "2000");
+    expect(editForm().getByLabelText("説明")).toHaveValue("説明");
   });
 });
 
