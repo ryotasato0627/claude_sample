@@ -51,6 +51,7 @@ docker compose run --rm frontend npm test
 
 - ブランチは Git Flow に従う。`main` / `develop` に直接コミットしない。
 - 実装を始める前に、`pr-strategy` Skill で PR 計画を、`commit-strategy` Skill でコミット計画を立てる。
+- 実装後は、確認を挟まずに lint / test → `reviewer` → 指摘の修正 → push → `pr-creater` で PR 作成まで進める。止まる条件は `pr-strategy` Skill の「実装後: PR作成まで」に従う。
 - コミットメッセージは `<type>: <要約>`(type は feat / fix / refactor / test / docs / chore)。
 
 | 種別 | 名前 | 用途 |

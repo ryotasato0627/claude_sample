@@ -26,6 +26,28 @@ PR粒度のルールは `docs/development/pull-request.md` の「PR Granularity�
 
 実装中に計画と異なる変更が必要になった場合は、PR計画を更新してから続ける。
 
+## 実装後: PR作成まで
+
+実装を始めたPRは、以下を**ユーザーに確認せず続けて**行い、PRのURLを報告して終える。
+
+1. lint / test を実行する(CLAUDE.md の「コマンド」)。失敗したら直す
+2. `reviewer` Agent でブランチの差分をレビューする
+3. 指摘に対応する
+   * Blocking: 修正し、`commit-strategy` に従ってコミットする。修正後に lint / test を再実行する
+   * Non-blocking: PRの範囲内で直せるものは直す。直さないものは、理由をPR本文の「備考」に書く
+   * Question: PR本文の「レビューしてほしいポイント」に書く
+4. 変更行数を計測する(Workflow 5・6)
+5. ブランチを push する(force push しない)
+6. `pr-creater` Agent で、`docs/development/pr-template.md` に沿ってPRを作成する。base は `branching-strategy.md` に従う
+
+以下の場合だけ、途中で止まってユーザーに確認する。
+
+* lint / test の失敗を、PRの範囲内で直せない
+* 指摘への対応に、仕様(`docs/spec/requirements.md`)・API(`api/openapi.yaml`)・権限マトリクス・データモデルの変更や、複数の案からの設計判断が必要
+* PR計画と異なる分割が必要になった
+
+人間のレビューコメントへの対応は、`address-pr` Skill に従う(方針の提示で止まる)。
+
 ## PR計画の形式
 
 ```markdown
