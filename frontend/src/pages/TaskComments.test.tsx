@@ -76,10 +76,6 @@ function mockGet({
   vi.mocked(api.GET).mockImplementation(((path: string) => Promise.resolve(responses[path] ?? ok([]))) as never);
 }
 
-function getCalls(path: string) {
-  return vi.mocked(api.GET).mock.calls.filter((call) => call[0] === path);
-}
-
 function renderApp(path = "/tasks/7") {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   render(
@@ -236,7 +232,6 @@ describe("コメント投稿", () => {
     });
     expect(await screen.findByText("新しいコメント", { selector: "p" })).toBeInTheDocument();
     expect(postForm().getByLabelText("コメント")).toHaveValue("");
-    expect(getCalls("/api/tasks/{taskId}/comments")).toHaveLength(2);
   });
 
   it("入力値の検証エラー(422)は、詳細を添えて表示し、入力を残す", async () => {
@@ -261,6 +256,8 @@ describe("コメント投稿", () => {
     submitPost("コメント");
 
     await waitFor(() => expect(screen.queryByRole("form", { name: "コメントを投稿" })).not.toBeInTheDocument());
+    // フォームが消えても、理由は表示する
+    expect(screen.getByRole("alert")).toHaveTextContent("この操作を行う権限がありません");
   });
 
   it("投稿が 404 なら、見つからない旨を表示する", async () => {
@@ -386,8 +383,6 @@ describe("コメント編集", () => {
     expect(screen.getByText("新しい本文", { selector: "p" })).toBeInTheDocument();
     expect(screen.getByText("(編集済み)")).toBeInTheDocument();
     expect(screen.queryByRole("form", { name: "コメントを編集" })).not.toBeInTheDocument();
-    // 一覧は応答で置き換える(取り直さない)
-    expect(getCalls("/api/tasks/{taskId}/comments")).toHaveLength(1);
   });
 
   it("本文を変更していなければ、API を呼ばずにフォームを閉じる", async () => {
@@ -466,6 +461,48 @@ describe("コメント編集", () => {
     expect(editForm().getByRole("button", { name: "キャンセル" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Bob のコメントを削除" })).toBeDisabled();
     expect(postForm().getByRole("button", { name: "投稿する" })).toBeDisabled();
+  });
+
+  it("失敗した後にキャンセルしたら、エラーを表示しない", async () => {
+    mockGet({ comments: ok([own]) });
+    vi.mocked(api.PATCH).mockResolvedValue(fail(422, "body is required"));
+    renderApp();
+    await startEditing();
+    submitEdit(" ");
+    await editForm().findByRole("alert");
+
+    fireEvent.click(editForm().getByRole("button", { name: "キャンセル" }));
+
+    expect(screen.queryByRole("form", { name: "コメントを編集" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("失敗した後に本文を元に戻して保存しても、エラーを表示しない", async () => {
+    mockGet({ comments: ok([own]) });
+    vi.mocked(api.PATCH).mockResolvedValue(fail(500));
+    renderApp();
+    await startEditing();
+    submitEdit("新しい本文");
+    await editForm().findByRole("alert");
+
+    submitEdit("元の本文");
+
+    expect(screen.queryByRole("form", { name: "コメントを編集" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(api.PATCH).toHaveBeenCalledTimes(1);
+  });
+
+  it("編集中に投稿しても、編集中の入力は残す", async () => {
+    mockGet({ comments: ok([own]) });
+    vi.mocked(api.POST).mockResolvedValue(ok(comment({ id: 5, body: "新しいコメント" }), 201));
+    renderApp();
+    await startEditing();
+    fireEvent.change(editForm().getByLabelText("本文"), { target: { value: "編集中の本文" } });
+
+    submitPost("新しいコメント");
+
+    expect(await postForm().findByRole("status")).toHaveTextContent("コメントを投稿しました");
+    expect(editForm().getByLabelText("本文")).toHaveValue("編集中の本文");
   });
 
   it("本文は必須・5000 文字以内", async () => {

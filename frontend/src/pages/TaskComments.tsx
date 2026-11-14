@@ -50,20 +50,26 @@ export function TaskComments({ task, role, members }: TaskCommentsProps) {
     setEditingId(comment.id);
   };
 
+  // キャンセル(変更なしの保存を含む)では、前回の失敗の表示を残さない。
+  const stopEditing = () => {
+    update.reset();
+    setEditingId(undefined);
+  };
+
   const saveComment = (comment: Comment, body: string) => {
     update.mutate({ commentId: comment.id, body }, { onSuccess: () => setEditingId(undefined) });
   };
 
   const deleteComment = (comment: Comment) => {
     if (!window.confirm("このコメントを削除しますか?")) return;
+    // 別のコメントを編集中でも、入力中の内容は残す。
     resetResults();
-    setEditingId(undefined);
     remove.mutate(comment.id);
   };
 
   const postComment = (body: string, onPosted: () => void) => {
+    // コメントを編集中でも、入力中の内容は残す。
     resetResults();
-    setEditingId(undefined);
     create.mutate(body, { onSuccess: onPosted });
   };
 
@@ -74,6 +80,8 @@ export function TaskComments({ task, role, members }: TaskCommentsProps) {
       {remove.isSuccess && <p role="status">コメントを削除しました</p>}
       {remove.isError && <p role="alert">{errorMessage(remove.error, changeErrors)}</p>}
       {update.isError && !editFormShown && <p role="alert">{errorMessage(update.error, changeErrors)}</p>}
+      {/* 投稿が 403 で権限が無くなった場合は投稿フォームごと消えるため、理由をここに表示する */}
+      {create.isError && !canPost && <p role="alert">{errorMessage(create.error)}</p>}
       {comments.isPending ? (
         <p aria-busy="true">読み込み中...</p>
       ) : !comments.data ? (
@@ -102,7 +110,7 @@ export function TaskComments({ task, role, members }: TaskCommentsProps) {
                         <EditCommentForm
                           comment={comment}
                           onSubmit={(body) => saveComment(comment, body)}
-                          onCancel={() => setEditingId(undefined)}
+                          onCancel={stopEditing}
                           pending={update.isPending}
                           error={update.isError ? errorMessage(update.error, changeErrors) : undefined}
                         />
