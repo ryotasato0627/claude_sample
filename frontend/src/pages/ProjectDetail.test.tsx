@@ -37,10 +37,12 @@ function renderApp(path = "/projects/1") {
 
 const alpha = project({ id: 1, name: "Alpha", description: "説明", role: "owner" });
 
-// 詳細は GET /api/projects/{projectId}、一覧は GET /api/projects で返す。
+// 詳細は GET /api/projects/{projectId}、一覧は GET /api/projects、メンバー一覧は空で返す。
 function mockGet(detail: unknown, list: unknown = ok([])) {
   vi.mocked(api.GET).mockImplementation(((path: string) =>
-    Promise.resolve(path === "/api/projects" ? list : detail)) as never);
+    Promise.resolve(
+      path === "/api/projects" ? list : path === "/api/projects/{projectId}/members" ? ok([]) : detail,
+    )) as never);
 }
 
 function submitEdit(name: string, description: string) {

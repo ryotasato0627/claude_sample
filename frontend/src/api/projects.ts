@@ -11,10 +11,12 @@ type CreateProjectRequest = components["schemas"]["CreateProjectRequest"];
 export type UpdateProjectRequest = components["schemas"]["UpdateProjectRequest"];
 
 // 一覧と詳細でキーを分ける。作成時は一覧だけを取り直す。
+// メンバー一覧は詳細の下に置き、詳細を取り直す・消すときに一緒に扱う。
 export const projectKeys = {
   all: ["projects"] as const,
   lists: () => [...projectKeys.all, "list"] as const,
   detail: (projectId: number) => [...projectKeys.all, "detail", projectId] as const,
+  members: (projectId: number) => [...projectKeys.detail(projectId), "members"] as const,
 };
 
 // 自分が所属するプロジェクトの一覧(所属の絞り込みは Backend が行う)。
@@ -43,7 +45,7 @@ export function useProject(projectId: number) {
 }
 
 // 権限が変わった(403)・削除された(404)場合は、詳細を取り直して表示(ロール・存在)を最新にする。
-function refreshDetailOnStaleError(queryClient: QueryClient, projectId: number) {
+export function refreshDetailOnStaleError(queryClient: QueryClient, projectId: number) {
   return (error: Error) => {
     if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {
       return queryClient.invalidateQueries({ queryKey: projectKeys.detail(projectId) });
