@@ -96,3 +96,32 @@ export function useUpdateTask(taskId: number, projectId: number) {
     onError: refreshTaskOnStaleError(queryClient, taskId, projectId),
   });
 }
+
+// ステータス変更(owner / member。遷移は自由)。
+export function useUpdateTaskStatus(taskId: number, projectId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (status: TaskStatus) =>
+      unwrap(api.PATCH("/api/tasks/{taskId}/status", { params: { path: { taskId } }, body: { status } })),
+    onSuccess: applyUpdatedTask(queryClient),
+    onError: refreshTaskOnStaleError(queryClient, taskId, projectId),
+  });
+}
+
+// 担当者変更(owner / member)。解除は null を明示して送る(省略すると Backend は 422 を返す)。
+export function useUpdateTaskAssignee(taskId: number, projectId: number) {
+  const queryClient = useQueryClient();
+  const refreshOnStale = refreshTaskOnStaleError(queryClient, taskId, projectId);
+  return useMutation({
+    mutationFn: (assigneeId: number | null) =>
+      unwrap(api.PATCH("/api/tasks/{taskId}/assignee", { params: { path: { taskId } }, body: { assigneeId } })),
+    onSuccess: applyUpdatedTask(queryClient),
+    onError: (error) => {
+      // 担当者がメンバーでない(選んだ後に外された)場合は 422 になる。選択肢を最新にする。
+      if (error instanceof ApiError && error.status === 422) {
+        return queryClient.invalidateQueries({ queryKey: projectKeys.members(projectId) });
+      }
+      return refreshOnStale(error);
+    },
+  });
+}

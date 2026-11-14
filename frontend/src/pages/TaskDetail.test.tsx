@@ -105,19 +105,27 @@ describe("Task 詳細", () => {
 
     expect(await screen.findByRole("heading", { name: "設計", level: 1 })).toBeInTheDocument();
     expect(screen.getByText("画面の設計")).toBeInTheDocument();
-    expect(field("ステータス")).toHaveTextContent("未着手");
-    await waitFor(() => expect(field("担当者")).toHaveTextContent("Bob"));
+    await screen.findByRole("link", { name: "「Alpha」へ戻る" });
+    if (role === "viewer") {
+      // viewer には変更の操作を出さず、文字で表示する
+      expect(field("ステータス")).toHaveTextContent(/^未着手$/);
+      await waitFor(() => expect(field("担当者")).toHaveTextContent(/^Bob$/));
+      expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+    } else {
+      expect(screen.getByRole("combobox", { name: "ステータス" })).toHaveValue("todo");
+      await waitFor(() => expect(screen.getByRole("combobox", { name: "担当者" })).toHaveValue("2"));
+    }
     expect(api.GET).toHaveBeenCalledWith("/api/tasks/{taskId}", { params: { path: { taskId: 7 } } });
     // ロールと担当者の名前は、Task が属するプロジェクトから取得する
     expect(api.GET).toHaveBeenCalledWith("/api/projects/{projectId}", { params: { path: { projectId: 1 } } });
   });
 
   it("担当者が未設定なら「未割り当て」、説明が空なら説明を表示しない", async () => {
-    mockGet({ task: ok({ ...design, assigneeId: null, description: "" }) });
+    mockGet({ task: ok({ ...design, assigneeId: null, description: "" }), detail: ok(project("viewer")) });
     renderApp();
     await screen.findByRole("heading", { name: "設計", level: 1 });
 
-    expect(field("担当者")).toHaveTextContent("未割り当て");
+    expect(field("担当者")).toHaveTextContent(/^未割り当て$/);
     expect(screen.queryByText("画面の設計")).not.toBeInTheDocument();
   });
 
@@ -318,5 +326,161 @@ describe("Task 編集", () => {
     expect(editForm().getByLabelText("タイトル")).toHaveValue("設計");
     expect(editForm().getByLabelText("説明")).toHaveAttribute("maxLength", "10000");
     expect(editForm().getByLabelText("説明")).toHaveValue("画面の設計");
+  });
+});
+
+describe("ステータス変更", () => {
+  // 権限マトリクス: ステータス変更は owner / member のみ(viewer に操作を出さないことは「Task 詳細」で確認)
+  it.each(["owner", "member"] as const)("%s は、選んだステータスに変更できる", async (role) => {
+    mockGet({ detail: ok(project(role)) });
+    vi.mocked(api.PATCH).mockResolvedValue(ok({ ...design, status: "done" }));
+    renderApp();
+
+    fireEvent.change(await screen.findByRole("combobox", { name: "ステータス" }), { target: { value: "done" } });
+
+    expect(await screen.findByRole("status")).toHaveTextContent("ステータスを変更しました");
+    expect(api.PATCH).toHaveBeenCalledWith("/api/tasks/{taskId}/status", {
+      params: { path: { taskId: 7 } },
+      body: { status: "done" },
+    });
+    expect(screen.getByRole("combobox", { name: "ステータス" })).toHaveValue("done");
+    // 詳細は応答で置き換える(取り直さない)
+    expect(getCalls("/api/tasks/{taskId}")).toHaveLength(1);
+  });
+
+  it("変更中は、ステータスと担当者を操作できない(二重送信の防止)", async () => {
+    mockGet();
+    vi.mocked(api.PATCH).mockReturnValue(new Promise(() => {}) as never);
+    renderApp();
+
+    fireEvent.change(await screen.findByRole("combobox", { name: "ステータス" }), { target: { value: "done" } });
+
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "ステータス" })).toBeDisabled());
+    expect(screen.getByRole("combobox", { name: "担当者" })).toBeDisabled();
+  });
+
+  it("失敗したら、エラーを表示し、元のステータスのままにする", async () => {
+    mockGet();
+    vi.mocked(api.PATCH).mockResolvedValue(fail(500));
+    renderApp();
+
+    fireEvent.change(await screen.findByRole("combobox", { name: "ステータス" }), { target: { value: "done" } });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("エラーが発生しました");
+    expect(screen.getByRole("combobox", { name: "ステータス" })).toHaveValue("todo");
+  });
+
+  it("権限が無ければ(403)、プロジェクトを取り直し、操作を表示しない", async () => {
+    mockGet();
+    vi.mocked(api.PATCH).mockResolvedValue(fail(403));
+    renderApp();
+    const select = await screen.findByRole("combobox", { name: "ステータス" });
+
+    mockGet({ detail: ok(project("viewer")) });
+    fireEvent.change(select, { target: { value: "done" } });
+
+    await waitFor(() => expect(screen.queryByRole("combobox")).not.toBeInTheDocument());
+    expect(field("ステータス")).toHaveTextContent(/^未着手$/);
+  });
+
+  it("変更が 404 なら、見つからない旨を表示する", async () => {
+    mockGet();
+    vi.mocked(api.PATCH).mockResolvedValue(fail(404));
+    renderApp();
+    const select = await screen.findByRole("combobox", { name: "ステータス" });
+
+    mockGet({ task: fail(404) });
+    fireEvent.change(select, { target: { value: "done" } });
+
+    await waitFor(() => expect(screen.queryByRole("combobox")).not.toBeInTheDocument());
+    expect(screen.getByRole("alert")).toHaveTextContent("Task が見つかりません");
+  });
+});
+
+describe("担当者変更", () => {
+  it("選択肢は「未割り当て」とメンバー一覧", async () => {
+    mockGet();
+    renderApp();
+    const select = await screen.findByRole("combobox", { name: "担当者" });
+    await within(select).findByRole("option", { name: "Bob" });
+
+    expect(within(select).getAllByRole("option").map((option) => option.textContent)).toEqual([
+      "未割り当て",
+      "Alice",
+      "Bob",
+    ]);
+  });
+
+  it.each(["owner", "member"] as const)("%s は、選んだメンバーに変更できる", async (role) => {
+    mockGet({ detail: ok(project(role)) });
+    vi.mocked(api.PATCH).mockResolvedValue(ok({ ...design, assigneeId: 1 }));
+    renderApp();
+    const select = await screen.findByRole("combobox", { name: "担当者" });
+    await within(select).findByRole("option", { name: "Alice" });
+
+    fireEvent.change(select, { target: { value: "1" } });
+
+    expect(await screen.findByRole("status")).toHaveTextContent("担当者を変更しました");
+    expect(api.PATCH).toHaveBeenCalledWith("/api/tasks/{taskId}/assignee", {
+      params: { path: { taskId: 7 } },
+      body: { assigneeId: 1 },
+    });
+    expect(select).toHaveValue("1");
+  });
+
+  // 省略すると Backend は 422 を返す(黙って担当が外れないようにするため)
+  it("「未割り当て」を選ぶと、assigneeId: null を明示して送る", async () => {
+    mockGet();
+    vi.mocked(api.PATCH).mockResolvedValue(ok({ ...design, assigneeId: null }));
+    renderApp();
+    const select = await screen.findByRole("combobox", { name: "担当者" });
+    await within(select).findByRole("option", { name: "Bob" });
+
+    fireEvent.change(select, { target: { value: "" } });
+
+    expect(await screen.findByRole("status")).toHaveTextContent("担当者を変更しました");
+    expect(api.PATCH).toHaveBeenCalledWith("/api/tasks/{taskId}/assignee", {
+      params: { path: { taskId: 7 } },
+      body: { assigneeId: null },
+    });
+    expect(select).toHaveValue("");
+  });
+
+  it("選んだユーザーがメンバーでなくなっていた(422)なら、その旨を表示し、選択肢を取り直す", async () => {
+    mockGet();
+    vi.mocked(api.PATCH).mockResolvedValue(fail(422, "assignee is not a member"));
+    renderApp();
+    const select = await screen.findByRole("combobox", { name: "担当者" });
+    await within(select).findByRole("option", { name: "Alice" });
+
+    mockGet({ members: ok([bob]) });
+    fireEvent.change(select, { target: { value: "1" } });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("このプロジェクトのメンバーではありません");
+    await waitFor(() => expect(within(select).queryByRole("option", { name: "Alice" })).not.toBeInTheDocument());
+    expect(select).toHaveValue("2");
+  });
+
+  it("現在の担当者がメンバー一覧に無くても、選択肢として表示する", async () => {
+    mockGet({ task: ok({ ...design, assigneeId: 9 }) });
+    renderApp();
+    const select = await screen.findByRole("combobox", { name: "担当者" });
+
+    expect(await within(select).findByRole("option", { name: "ユーザー #9" })).toBeInTheDocument();
+    expect(select).toHaveValue("9");
+  });
+
+  it("権限が無ければ(403)、プロジェクトを取り直し、操作を表示しない", async () => {
+    mockGet();
+    vi.mocked(api.PATCH).mockResolvedValue(fail(403));
+    renderApp();
+    const select = await screen.findByRole("combobox", { name: "担当者" });
+    await within(select).findByRole("option", { name: "Alice" });
+
+    mockGet({ detail: ok(project("viewer")) });
+    fireEvent.change(select, { target: { value: "1" } });
+
+    await waitFor(() => expect(screen.queryByRole("combobox")).not.toBeInTheDocument());
+    expect(field("担当者")).toHaveTextContent(/^Bob$/);
   });
 });
