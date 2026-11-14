@@ -40,3 +40,28 @@ export function useCreateComment(taskId: number, projectId: number) {
     onError: refreshTaskOnStaleError(queryClient, taskId, projectId),
   });
 }
+
+// コメント編集(owner は全件、member は自分のコメントのみ)。一覧の該当コメントを応答で置き換える。
+export function useUpdateComment(taskId: number, projectId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ commentId, body }: { commentId: number; body: string }) =>
+      unwrap(api.PATCH("/api/comments/{commentId}", { params: { path: { commentId } }, body: { body } })),
+    onSuccess: (updated) =>
+      queryClient.setQueryData<Comment[]>(taskKeys.comments(taskId), (comments) =>
+        comments?.map((comment) => (comment.id === updated.id ? updated : comment)),
+      ),
+    onError: refreshTaskOnStaleError(queryClient, taskId, projectId),
+  });
+}
+
+// コメント削除(owner は全件、member は自分のコメントのみ)。
+export function useDeleteComment(taskId: number, projectId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (commentId: number) =>
+      unwrap(api.DELETE("/api/comments/{commentId}", { params: { path: { commentId } } })),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: taskKeys.comments(taskId) }),
+    onError: refreshTaskOnStaleError(queryClient, taskId, projectId),
+  });
+}
