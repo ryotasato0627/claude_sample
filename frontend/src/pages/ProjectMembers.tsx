@@ -1,7 +1,7 @@
 import { type FormEvent, type ReactNode, useState } from "react";
 import { useNavigate } from "react-router";
 
-import { errorMessage } from "../api/errors";
+import { ApiError, errorMessage } from "../api/errors";
 import { type Member, useAddMember, useMembers, useRemoveMember, useUpdateMemberRole } from "../api/members";
 import type { Project, Role } from "../api/projects";
 import { can } from "../auth/permissions";
@@ -12,6 +12,12 @@ const roles: readonly Role[] = ["owner", "member", "viewer"];
 
 function toRole(value: FormDataEntryValue | null): Role | undefined {
   return roles.find((role) => role === value);
+}
+
+// 追加の 422 は、ほとんどが未登録のメールアドレス。その他の原因も分かるよう、Backend の詳細を添える。
+function addInvalidMessage(error: unknown): string {
+  const message = "登録済みのユーザーのメールアドレスを入力してください";
+  return error instanceof ApiError && error.body ? `${message}(${error.body.message})` : message;
 }
 
 const changeErrors = {
@@ -91,7 +97,7 @@ function ManageMembers({ project, members }: { project: Project; members: Member
 
   const changeRole = (member: Member, role: Role) => {
     const isSelf = member.userId === session?.user.id;
-    if (isSelf && role !== "owner" && !window.confirm("自分のロールを変更すると、メンバーを管理できなくなります。変更しますか?")) {
+    if (isSelf && role !== "owner" && !window.confirm("自分のロールを変更すると、メンバーの管理とプロジェクトの編集・削除ができなくなります。変更しますか?")) {
       return;
     }
     resetResults();
@@ -184,10 +190,7 @@ function ManageMembers({ project, members }: { project: Project; members: Member
         </label>
         {add.isError && (
           <p role="alert">
-            {errorMessage(add.error, {
-              409: "既にメンバーです",
-              422: "登録済みのユーザーのメールアドレスを入力してください",
-            })}
+            {errorMessage(add.error, { 409: "既にメンバーです", 422: addInvalidMessage(add.error) })}
           </p>
         )}
         <button type="submit" disabled={busy} aria-busy={add.isPending}>

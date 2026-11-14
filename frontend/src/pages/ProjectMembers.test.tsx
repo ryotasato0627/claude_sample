@@ -126,6 +126,26 @@ describe("メンバー一覧", () => {
   });
 });
 
+describe("メンバー一覧の 404", () => {
+  it("表示中にメンバーから外されていたら(404)、詳細を取り直し、見つからない旨を表示する", async () => {
+    // 詳細は 1 回目だけ取得でき、取り直すと 404 になる
+    let detailCalls = 0;
+    vi.mocked(api.GET).mockImplementation(((path: string) =>
+      Promise.resolve(
+        path === "/api/projects/{projectId}/members"
+          ? fail(404)
+          : detailCalls++ === 0
+            ? ok(project("owner"))
+            : fail(404),
+      )) as never);
+    renderApp();
+
+    expect(await screen.findByText("プロジェクトが見つかりません")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Alpha", level: 1 })).not.toBeInTheDocument();
+    expect(getCalls("/api/projects/{projectId}")).toHaveLength(2);
+  });
+});
+
 describe("メンバー追加", () => {
   function submitAdd(email: string, role: string) {
     fireEvent.change(screen.getByLabelText("メールアドレス"), { target: { value: email } });
@@ -167,7 +187,9 @@ describe("メンバー追加", () => {
 
     submitAdd("nobody@example.com", "member");
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("登録済みのユーザーのメールアドレスを入力してください");
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "登録済みのユーザーのメールアドレスを入力してください(no registered user with that email)",
+    );
     expect(screen.getByLabelText("メールアドレス")).toHaveValue("nobody@example.com");
   });
 
@@ -182,7 +204,7 @@ describe("メンバー追加", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("既にメンバーです");
   });
 
-  it("権限が無ければ(403)、その旨を表示し、詳細を取り直して現在のロールで表示する", async () => {
+  it("権限が無ければ(403)、詳細を取り直して現在のロールで表示する", async () => {
     mockGet();
     vi.mocked(api.POST).mockResolvedValue(fail(403));
     renderApp();
@@ -247,7 +269,7 @@ describe("ロール変更", () => {
 
     fireEvent.change(await screen.findByRole("combobox", { name: "Alice のロール" }), { target: { value: "member" } });
 
-    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("メンバーを管理できなくなります"));
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("メンバーの管理とプロジェクトの編集・削除ができなくなります"));
     expect(api.PATCH).not.toHaveBeenCalled();
   });
 
@@ -264,6 +286,19 @@ describe("ロール変更", () => {
     expect(await screen.findByText("あなたのロール: メンバー")).toBeInTheDocument();
     expect(screen.queryByRole("combobox", { name: "Alice のロール" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "編集する" })).not.toBeInTheDocument();
+  });
+
+  it("権限が無ければ(403)、詳細を取り直して現在のロールで表示する", async () => {
+    mockGet();
+    vi.mocked(api.PATCH).mockResolvedValue(fail(403));
+    renderApp();
+    const select = await screen.findByRole("combobox", { name: "Bob のロール" });
+
+    mockGet({ detail: ok(project("viewer")) });
+    fireEvent.change(select, { target: { value: "viewer" } });
+
+    expect(await screen.findByText("あなたのロール: 閲覧者")).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "Bob のロール" })).not.toBeInTheDocument();
   });
 
   it("対象が既に外されていた(404)なら、その旨を表示し、一覧を取り直す", async () => {
@@ -330,6 +365,20 @@ describe("メンバー削除", () => {
     expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("「Alpha」を表示できなくなります"));
     expect(await screen.findByRole("heading", { name: "プロジェクト", level: 1 })).toBeInTheDocument();
     expect(getCalls("/api/projects/{projectId}")).toHaveLength(1);
+  });
+
+  it("対象が既に外されていた(404)なら、その旨を表示し、一覧を取り直す", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    mockGet();
+    vi.mocked(api.DELETE).mockResolvedValue(fail(404));
+    renderApp();
+    const button = await screen.findByRole("button", { name: "Bob を外す" });
+
+    mockGet({ members: ok([alice, carol]) });
+    fireEvent.click(button);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("メンバーが見つかりません");
+    await waitFor(() => expect(screen.queryByRole("cell", { name: "Bob" })).not.toBeInTheDocument());
   });
 
   it("権限が無ければ(403)、その旨を表示する", async () => {
