@@ -39,16 +39,21 @@ export function useMembers(projectId: number) {
 }
 
 // 複数のプロジェクトのメンバー一覧をまとめて取得し、プロジェクト ID ごとに返す(Task 検索の担当者名に使う)。
-// 取得できていないプロジェクトは含まない。キャッシュは useMembers と共有する。
-export function useMembersOf(projectIds: number[]): Map<number, Member[]> {
+// members は取得できたプロジェクトだけを含み、errors は取得に失敗したプロジェクトのエラーを含む。
+// キャッシュは useMembers と共有する。
+export function useMembersOf(projectIds: number[]): { members: Map<number, Member[]>; errors: Map<number, Error> } {
   const queryClient = useQueryClient();
   const unique = [...new Set(projectIds)];
   return useQueries({
     queries: unique.map((projectId) => membersQuery(queryClient, projectId)),
-    combine: (results) =>
-      new Map(
+    combine: (results) => ({
+      members: new Map(
         results.flatMap((result, i) => (result.data ? [[unique[i]!, result.data] as [number, Member[]]] : [])),
       ),
+      errors: new Map(
+        results.flatMap((result, i) => (result.error ? [[unique[i]!, result.error] as [number, Error]] : [])),
+      ),
+    }),
   });
 }
 

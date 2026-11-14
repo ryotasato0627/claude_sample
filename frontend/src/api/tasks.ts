@@ -166,6 +166,7 @@ export type TaskSearchFilters = {
 // Task 検索(自分が所属するプロジェクトの Task のみ。更新日時の降順。絞り込みと並び順は Backend が決める)。
 // ページや条件を変えている間は、前の結果を表示したままにする。
 // 他の画面での変更(更新・削除など)では無効化しない。検索画面を開くたびに取り直す(staleTime が既定の 0)ことに依存する。
+// そのため、Task を変更してからブラウザの「戻る」で検索画面に戻ると、取り直しが終わるまで前の結果が見える。
 export function useSearchTasks({ q, projectId, status, assigneeId, offset }: TaskSearchFilters) {
   const query = { q, projectId, status, assigneeId, limit: taskPageSize, offset };
   return useQuery({

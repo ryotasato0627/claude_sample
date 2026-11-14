@@ -1,7 +1,7 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { focusManager, QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "../App";
 import { api } from "../api/client";
@@ -118,7 +118,30 @@ beforeEach(() => {
   sessionStore.set({ token: "jwt", expiresAt: "2999-01-01T00:00:00Z", user });
 });
 
+afterEach(() => {
+  focusManager.setFocused(undefined);
+});
+
+// ウィンドウにフォーカスが戻ったことにして、表示中の Query を取り直させる(他の人の変更が反映される場面)。
+function refocusWindow() {
+  act(() => {
+    focusManager.setFocused(false);
+    focusManager.setFocused(true);
+  });
+}
+
 describe("Task 検索", () => {
+  it("キーワードと絞り込みを、1 つの検索のランドマークにまとめる", async () => {
+    mockGet();
+    renderApp();
+    const landmark = within(await screen.findByRole("search", { name: "Task を検索" }));
+
+    expect(landmark.getByLabelText("キーワード")).toBeInTheDocument();
+    expect(landmark.getByLabelText("プロジェクト")).toBeInTheDocument();
+    expect(landmark.getByLabelText("ステータス")).toBeInTheDocument();
+    expect(landmark.getByLabelText("担当者")).toBeInTheDocument();
+  });
+
   it("ナビゲーションから検索画面へ移動できる", async () => {
     mockGet();
     renderApp("/");
@@ -170,7 +193,7 @@ describe("Task 検索", () => {
   it("キーワードで検索する(前後の空白は除き、空なら指定しない)", async () => {
     mockGet({ search: (query) => page(query.q === "設計" ? [task({ title: "画面の設計" })] : []) });
     renderApp();
-    await screen.findByText("条件に一致する Task はありません");
+    await screen.findByText("Task はまだありません");
 
     search("  設計  ");
     expect(await screen.findByRole("link", { name: "画面の設計" })).toBeInTheDocument();
@@ -183,11 +206,37 @@ describe("Task 検索", () => {
   it("キーワードは、文字を入力しただけでは検索しない", async () => {
     mockGet();
     renderApp();
-    await screen.findByText("条件に一致する Task はありません");
+    await screen.findByText("Task はまだありません");
 
     fireEvent.change(screen.getByLabelText("キーワード"), { target: { value: "設計" } });
+    // 入力に遅れて検索が走る(debounce など)場合も検出できるよう、しばらく待ってから確かめる
+    await new Promise((resolve) => setTimeout(resolve, 500));
 
     expect(searchQueries()).toHaveLength(1);
+    expect(screen.queryByText(/で検索しています/)).not.toBeInTheDocument();
+  });
+
+  it("検索中のキーワードを表示する", async () => {
+    mockGet();
+    renderApp();
+    await screen.findByText("Task はまだありません");
+
+    search("設計");
+
+    expect(await screen.findByText("「設計」で検索しています")).toBeInTheDocument();
+  });
+
+  it("同じキーワードで検索し直すと、結果を取り直す", async () => {
+    mockGet();
+    renderApp();
+    await screen.findByText("Task はまだありません");
+    search("設計");
+    await waitFor(() => expect(searchQueries()).toHaveLength(2));
+
+    search("設計");
+
+    await waitFor(() => expect(searchQueries()).toHaveLength(3));
+    expect(searchQueries().at(-1)).toMatchObject({ q: "設計", offset: 0 });
   });
 
   it("キーワードは 200 文字以内", async () => {
@@ -216,7 +265,7 @@ describe("Task 検索", () => {
   it("ステータスで絞り込む", async () => {
     mockGet();
     renderApp();
-    await screen.findByText("条件に一致する Task はありません");
+    await screen.findByText("Task はまだありません");
 
     fireEvent.change(screen.getByLabelText("ステータス"), { target: { value: "done" } });
 
@@ -227,7 +276,7 @@ describe("Task 検索", () => {
     mockGet();
     renderApp();
     const assignee = screen.getByLabelText("担当者");
-    await screen.findByText("条件に一致する Task はありません");
+    await screen.findByText("Task はまだありません");
 
     expect(assignee).toBeDisabled();
     expect(assignee).toHaveAccessibleDescription("プロジェクトを選ぶと、そのメンバーで絞り込めます");
@@ -300,12 +349,16 @@ describe("Task 検索", () => {
     await waitFor(() => expect(searchQueries().at(-1)).toMatchObject({ q: "Task", offset: 0 }));
   });
 
-  it("一致する Task が無ければ、その旨を表示する", async () => {
+  it("条件なしで Task が無ければ「Task はまだありません」、条件を付けて無ければ「条件に一致する Task はありません」", async () => {
     mockGet();
     renderApp();
 
-    expect(await screen.findByText("条件に一致する Task はありません")).toBeInTheDocument();
+    expect(await screen.findByText("Task はまだありません")).toBeInTheDocument();
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("ステータス"), { target: { value: "done" } });
+
+    expect(await screen.findByText("条件に一致する Task はありません")).toBeInTheDocument();
   });
 
   it("読み込み中は、その旨を表示する", async () => {
@@ -365,5 +418,105 @@ describe("Task 検索", () => {
 
     expect(await screen.findByRole("heading", { name: "ログイン" })).toBeInTheDocument();
     expect(api.GET).not.toHaveBeenCalled();
+  });
+});
+
+describe("Task 検索(条件の変化・ページ送り・エラー)", () => {
+  const all = Array.from({ length: 25 }, (_, i) => task({ id: i + 1, title: `Task ${i + 1}` }));
+  const paged = (query: SearchQuery) =>
+    page(all.slice(query.offset, query.offset + query.limit), all.length, query.offset);
+
+  async function openSecondPage() {
+    await screen.findByRole("link", { name: "Task 1" });
+    fireEvent.click(screen.getByRole("button", { name: "次へ" }));
+    await screen.findByRole("link", { name: "Task 21" });
+  }
+
+  it("前へで前のページに戻る", async () => {
+    mockGet({ search: paged });
+    renderApp();
+    await openSecondPage();
+
+    fireEvent.click(screen.getByRole("button", { name: "前へ" }));
+
+    expect(await screen.findByRole("link", { name: "Task 1" })).toBeInTheDocument();
+    expect(searchQueries().map((query) => query.offset)).toEqual([0, 20, 0]);
+  });
+
+  it("プロジェクトを変えたら、1 ページ目に戻る", async () => {
+    mockGet({ search: paged });
+    renderApp();
+    await openSecondPage();
+    await within(screen.getByLabelText("プロジェクト")).findByRole("option", { name: "Alpha" });
+
+    fireEvent.change(screen.getByLabelText("プロジェクト"), { target: { value: "1" } });
+
+    await waitFor(() => expect(searchQueries().at(-1)).toMatchObject({ projectId: 1, offset: 0 }));
+  });
+
+  it("ステータスを変えたら、1 ページ目に戻る", async () => {
+    mockGet({ search: paged });
+    renderApp();
+    await openSecondPage();
+
+    fireEvent.change(screen.getByLabelText("ステータス"), { target: { value: "done" } });
+
+    await waitFor(() => expect(searchQueries().at(-1)).toMatchObject({ status: "done", offset: 0 }));
+  });
+
+  it("次のページを読み込んでいる間は、前の結果を表示したままページの操作を押せない", async () => {
+    mockGet({ search: (query) => (query.offset === 0 ? paged(query) : new Promise(() => {})) });
+    renderApp();
+    await screen.findByRole("link", { name: "Task 1" });
+
+    fireEvent.click(screen.getByRole("button", { name: "次へ" }));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "次へ" })).toBeDisabled());
+    expect(screen.getByRole("button", { name: "前へ" })).toBeDisabled();
+    expect(screen.getByRole("table")).toHaveAttribute("aria-busy", "true");
+    expect(screen.getByRole("link", { name: "Task 1" })).toBeInTheDocument();
+  });
+
+  it("選んだ担当者がメンバーから外れても、絞り込み中であることを表示する", async () => {
+    mockGet();
+    renderApp();
+    await within(screen.getByLabelText("プロジェクト")).findByRole("option", { name: "Alpha" });
+    fireEvent.change(screen.getByLabelText("プロジェクト"), { target: { value: "1" } });
+    const assignee = screen.getByLabelText("担当者");
+    await within(assignee).findByRole("option", { name: "Bob" });
+    fireEvent.change(assignee, { target: { value: "2" } });
+
+    // Bob がメンバーから外れた後に、メンバー一覧を取り直す
+    mockGet({ members: { 1: ok([alice]), 2: ok([alice, carol]) } });
+    refocusWindow();
+
+    expect(await within(assignee).findByRole("option", { name: "ユーザー #2" })).toBeInTheDocument();
+    expect(assignee).toHaveValue("2");
+  });
+
+  it("選んだプロジェクトが一覧から消えても、絞り込み中であることを表示する", async () => {
+    mockGet();
+    renderApp();
+    await within(screen.getByLabelText("プロジェクト")).findByRole("option", { name: "Beta" });
+    fireEvent.change(screen.getByLabelText("プロジェクト"), { target: { value: "2" } });
+
+    // Beta から外れた後に、プロジェクト一覧を取り直す
+    mockGet({ projects: ok([alpha]) });
+    refocusWindow();
+
+    const project = screen.getByLabelText("プロジェクト");
+    expect(await within(project).findByRole("option", { name: "プロジェクト #2" })).toBeInTheDocument();
+    expect(project).toHaveValue("2");
+  });
+
+  it("選んだプロジェクトのメンバー一覧を取得できなければ、その旨を表示し、担当者を選べない", async () => {
+    mockGet({ members: { 1: fail(500), 2: ok([alice, carol]) } });
+    renderApp();
+    await within(screen.getByLabelText("プロジェクト")).findByRole("option", { name: "Alpha" });
+
+    fireEvent.change(screen.getByLabelText("プロジェクト"), { target: { value: "1" } });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("担当者の候補(メンバー一覧)を取得できません");
+    expect(screen.getByLabelText("担当者")).toBeDisabled();
   });
 });

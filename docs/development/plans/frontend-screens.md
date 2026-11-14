@@ -112,4 +112,4 @@ PR の分割は `docs/development/pull-request.md` の「PR Granularity」、コ
 | 6 | 完了 | #12 |
 | 6b | 完了 | #13 |
 | 7 | 完了 | #14 |
-| 8 | レビュー待ち | - |
+| 8 | レビュー待ち | #15 |
