@@ -32,7 +32,14 @@ docs/development/pull-request.md     # レビューコメントの分類(Blockin
 
 - `bash .claude/skills/address-pr/scripts/fetch-threads.sh <N>` で未解決スレッドを JSON で取得する。
   各スレッドは `id` / `path` / `line` / `outdated` / `comments[]` を持つ。
-- PR 本文への会話コメント(スレッドに紐づかないもの)は `gh pr view <N> --comments` で読む。
+- PR 本文への会話コメント(スレッドに紐づかないもの)とレビュー本文は、次のコマンドで読む。
+
+  ```bash
+  gh pr view <N> --json comments,reviews \
+    -q '{comments: [.comments[] | {author: .author.login, body}], reviews: [.reviews[] | {author: .author.login, state, body}]}'
+  ```
+
+  `gh pr view <N> --comments` は使わない(gh 2.45 では廃止された Projects (classic) を参照してエラーになる)。
 - 指摘されたコードを実際に読み、指摘が現在のコードに当てはまるかを確認する。
 
 ## フェーズ 2: 分類
