@@ -15,9 +15,11 @@ export type UpdateTaskRequest = components["schemas"]["UpdateTaskRequest"];
 // Task 詳細のキー。一覧(projectKeys.tasks)はプロジェクトの下にある。
 // 詳細はプロジェクトの下に無いため、プロジェクトの削除やメンバーの削除では消えない・無効化されない。
 // staleTime が既定の 0 で、開くたびに取り直す(404 なら見つからない表示にする)ことに依存している。
+// コメント一覧は詳細の下に置き、詳細を取り直す・消すときに一緒に扱う。
 export const taskKeys = {
   all: ["tasks"] as const,
   detail: (taskId: number) => [...taskKeys.all, "detail", taskId] as const,
+  comments: (taskId: number) => [...taskKeys.detail(taskId), "comments"] as const,
 };
 
 // 1 ページの件数(API の既定値と同じ)。
@@ -82,7 +84,7 @@ function applyUpdatedTask(queryClient: QueryClient) {
 
 // 権限が変わった(403)・Task やプロジェクトが無くなった(404)場合は、Task とプロジェクトの詳細を取り直して
 // 表示(ロール・存在)を最新にする。
-function refreshTaskOnStaleError(queryClient: QueryClient, taskId: number, projectId: number) {
+export function refreshTaskOnStaleError(queryClient: QueryClient, taskId: number, projectId: number) {
   const refreshProject = refreshDetailOnStaleError(queryClient, projectId);
   return (error: Error) => {
     if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {

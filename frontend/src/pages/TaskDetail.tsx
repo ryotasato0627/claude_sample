@@ -18,6 +18,7 @@ import { NotFound } from "../components/NotFound";
 import { assigneeName, formatDateTime } from "../components/taskFormat";
 import { taskStatuses, taskStatusLabels } from "../components/taskStatusLabels";
 import { parseId } from "./routeParams";
+import { TaskComments } from "./TaskComments";
 
 const notFoundMessage = "Task が見つかりません";
 
@@ -221,6 +222,7 @@ function TaskView({ task }: { task: Task }) {
           <time dateTime={task.updatedAt}>{formatDateTime(task.updatedAt)}</time>
         </dd>
       </dl>
+      <TaskComments task={task} role={role} members={members.data} />
     </>
   );
 }
