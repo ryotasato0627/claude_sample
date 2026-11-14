@@ -2,6 +2,7 @@ import { type QueryClient, useMutation, useQuery, useQueryClient } from "@tansta
 
 import { api } from "./client";
 import { ApiError, unwrap } from "./errors";
+import { useMounted } from "./mounted";
 import type { components } from "./schema.gen";
 
 export type Project = components["schemas"]["Project"];
@@ -64,15 +65,17 @@ export function useUpdateProject(projectId: number) {
   });
 }
 
-// onDeleted で詳細画面から移動する。
+// onDeleted で詳細画面から移動する。削除中に利用者が別の画面へ移っていたら呼ばない。
 export function useDeleteProject(projectId: number, { onDeleted }: { onDeleted: () => void }) {
   const queryClient = useQueryClient();
+  const mounted = useMounted();
   return useMutation({
     mutationFn: () => unwrap(api.DELETE("/api/projects/{projectId}", { params: { path: { projectId } } })),
     onSuccess: () => {
-      onDeleted();
+      if (mounted.current) onDeleted();
       // 削除したプロジェクトの詳細は取り直さず(404 になる)、キャッシュから消す。
-      // 詳細画面の表示中に消すと取り直してしまうため、移動の後に消す。
+      // 消すのは移動を予約した後。removeQueries は表示中の useQuery に通知しないため、
+      // 次の描画で詳細画面が外れるまでの間に、別の理由で再描画されない限り取り直さない。
       queryClient.removeQueries({ queryKey: projectKeys.detail(projectId) });
       return queryClient.invalidateQueries({ queryKey: projectKeys.lists() });
     },

@@ -295,6 +295,7 @@ describe("プロジェクト削除", () => {
     expect(vi.mocked(api.GET).mock.calls.filter((call) => call[0] === "/api/projects/{projectId}")).toHaveLength(1);
   });
 
+  // 移動 → 詳細のキャッシュ削除という順序そのものは、描画のタイミングが jsdom では再現できないため検証していない。
   it("一覧から開いた詳細で削除すると、一覧へ戻って取り直し、詳細は取り直さない", async () => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
     mockGet(ok(alpha), ok([alpha]));
@@ -310,6 +311,27 @@ describe("プロジェクト削除", () => {
     expect(await screen.findByText("所属しているプロジェクトはまだありません")).toBeInTheDocument();
     expect(screen.queryByText("プロジェクトが見つかりません")).not.toBeInTheDocument();
     expect(vi.mocked(api.GET).mock.calls.filter((call) => call[0] === "/api/projects/{projectId}")).toHaveLength(1);
+  });
+
+  it("削除中に別の画面へ移動していたら、削除後に一覧へ戻さない", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    mockGet(ok(alpha));
+    let resolveDelete: (value: unknown) => void = () => {};
+    vi.mocked(api.DELETE).mockReturnValue(
+      new Promise((resolve) => {
+        resolveDelete = resolve;
+      }) as never,
+    );
+    renderApp();
+    fireEvent.click(await screen.findByRole("button", { name: "削除する" }));
+
+    fireEvent.click(screen.getByRole("link", { name: "Task Management" }));
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "Alpha", level: 1 })).not.toBeInTheDocument());
+    resolveDelete({ response: { ok: true, status: 204 } });
+
+    await waitFor(() => expect(api.DELETE).toHaveBeenCalled());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.queryByRole("heading", { name: "プロジェクト", level: 1 })).not.toBeInTheDocument();
   });
 
   it("確認で取り消すと、削除しない", async () => {
