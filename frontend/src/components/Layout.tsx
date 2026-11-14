@@ -21,6 +21,11 @@ export function Layout() {
             <li>
               <NavLink to="/projects">プロジェクト</NavLink>
             </li>
+            <li>
+              <NavLink to="/tasks" end>
+                Task 検索
+              </NavLink>
+            </li>
           </ul>
           <ul>
             <li>{session?.user.name}</li>

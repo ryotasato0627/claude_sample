@@ -8,6 +8,7 @@ import { ProjectDetail } from "./pages/ProjectDetail";
 import { Projects } from "./pages/Projects";
 import { Register } from "./pages/Register";
 import { TaskDetail } from "./pages/TaskDetail";
+import { TaskSearch } from "./pages/TaskSearch";
 
 export function App() {
   return (
@@ -21,6 +22,7 @@ export function App() {
           <Route index element={<Home />} />
           <Route path="projects" element={<Projects />} />
           <Route path="projects/:projectId" element={<ProjectDetail />} />
+          <Route path="tasks" element={<TaskSearch />} />
           <Route path="tasks/:taskId" element={<TaskDetail />} />
         </Route>
       </Route>

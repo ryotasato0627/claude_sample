@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { type QueryClient, useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { sessionStore } from "../auth/session";
 import { api } from "./client";
@@ -14,10 +14,8 @@ function isCurrentUser(userId: number): boolean {
   return sessionStore.get()?.user.id === userId;
 }
 
-// プロジェクトのメンバー一覧(全ロールが閲覧できる)。
-export function useMembers(projectId: number) {
-  const queryClient = useQueryClient();
-  return useQuery({
+function membersQuery(queryClient: QueryClient, projectId: number) {
+  return {
     queryKey: projectKeys.members(projectId),
     queryFn: async () => {
       try {
@@ -31,6 +29,31 @@ export function useMembers(projectId: number) {
         throw error;
       }
     },
+  };
+}
+
+// プロジェクトのメンバー一覧(全ロールが閲覧できる)。
+export function useMembers(projectId: number) {
+  const queryClient = useQueryClient();
+  return useQuery(membersQuery(queryClient, projectId));
+}
+
+// 複数のプロジェクトのメンバー一覧をまとめて取得し、プロジェクト ID ごとに返す(Task 検索の担当者名に使う)。
+// members は取得できたプロジェクトだけを含み、errors は取得に失敗したプロジェクトのエラーを含む。
+// キャッシュは useMembers と共有する。
+export function useMembersOf(projectIds: number[]): { members: Map<number, Member[]>; errors: Map<number, Error> } {
+  const queryClient = useQueryClient();
+  const unique = [...new Set(projectIds)];
+  return useQueries({
+    queries: unique.map((projectId) => membersQuery(queryClient, projectId)),
+    combine: (results) => ({
+      members: new Map(
+        results.flatMap((result, i) => (result.data ? [[unique[i]!, result.data] as [number, Member[]]] : [])),
+      ),
+      errors: new Map(
+        results.flatMap((result, i) => (result.error ? [[unique[i]!, result.error] as [number, Error]] : [])),
+      ),
+    }),
   });
 }
 
