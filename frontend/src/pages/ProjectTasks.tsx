@@ -1,5 +1,5 @@
 import { type FormEvent, useState } from "react";
-import { Link } from "react-router";
+import { Link, useLocation } from "react-router";
 
 import { errorMessage } from "../api/errors";
 import { useMembers } from "../api/members";
@@ -19,6 +19,14 @@ function toAssigneeId(value: string): number | undefined {
   return value !== "" && Number.isSafeInteger(id) ? id : undefined;
 }
 
+// Task 詳細で削除した後に、削除した Task のタイトルを受け取る。
+function deletedTaskTitle(state: unknown): string | undefined {
+  if (typeof state === "object" && state !== null && "deletedTaskTitle" in state) {
+    return typeof state.deletedTaskTitle === "string" ? state.deletedTaskTitle : undefined;
+  }
+  return undefined;
+}
+
 // プロジェクト詳細の「Task」。全ロールに一覧を表示し、作成は owner / member にだけ表示する。
 // UI の出し分けは UX のため。最終的な判定は Backend が行う。
 export function ProjectTasks({ project }: { project: Project }) {
@@ -26,9 +34,17 @@ export function ProjectTasks({ project }: { project: Project }) {
   const tasks = useProjectTasks(project.id, filters);
   // 担当者の名前と絞り込みの選択肢に使う(メンバーの節と同じキャッシュ)。
   const members = useMembers(project.id);
+  // 削除した旨は、この節で次の操作(絞り込み・ページ移動・作成)をするまで表示する。
+  const deletedTitle = deletedTaskTitle(useLocation().state);
+  const [operated, setOperated] = useState(false);
+  const deleted = operated ? undefined : deletedTitle;
+  const changeFilters = (next: TaskFilters) => {
+    setOperated(true);
+    setFilters(next);
+  };
 
   // 絞り込みを変えたら 1 ページ目に戻す。
-  const changeFilter = (change: Omit<TaskFilters, "offset">) => setFilters({ ...filters, ...change, offset: 0 });
+  const changeFilter = (change: Omit<TaskFilters, "offset">) => changeFilters({ ...filters, ...change, offset: 0 });
   const filtered = filters.status !== undefined || filters.assigneeId !== undefined;
   const selectedAssigneeMissing =
     filters.assigneeId !== undefined && !members.data?.some((member) => member.userId === filters.assigneeId);
@@ -36,6 +52,7 @@ export function ProjectTasks({ project }: { project: Project }) {
   return (
     <section>
       <h2>Task</h2>
+      {deleted !== undefined && <p role="status">「{deleted}」を削除しました</p>}
       <div role="group" aria-label="絞り込み">
         <label>
           ステータス
@@ -125,13 +142,13 @@ export function ProjectTasks({ project }: { project: Project }) {
             offset={tasks.data.offset}
             count={tasks.data.items.length}
             disabled={tasks.isPlaceholderData}
-            onChange={(offset) => setFilters({ ...filters, offset })}
+            onChange={(offset) => changeFilters({ ...filters, offset })}
           />
         </>
       )}
       {/* 作成した Task が見えるよう、絞り込みを外して 1 ページ目に戻す */}
       {can(project.role, "writeTask") && (
-        <CreateTaskForm projectId={project.id} onCreated={() => setFilters({ offset: 0 })} />
+        <CreateTaskForm projectId={project.id} onCreated={() => changeFilters({ offset: 0 })} />
       )}
     </section>
   );

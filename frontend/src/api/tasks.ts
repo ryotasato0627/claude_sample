@@ -2,11 +2,13 @@ import { keepPreviousData, type QueryClient, useMutation, useQuery, useQueryClie
 
 import { api } from "./client";
 import { ApiError, unwrap } from "./errors";
+import { useMounted } from "./mounted";
 import { projectKeys, refreshDetailOnStaleError } from "./projects";
 import type { components } from "./schema.gen";
 
 export type Task = components["schemas"]["Task"];
 export type TaskStatus = components["schemas"]["TaskStatus"];
+type TaskList = components["schemas"]["TaskList"];
 type CreateTaskRequest = components["schemas"]["CreateTaskRequest"];
 export type UpdateTaskRequest = components["schemas"]["UpdateTaskRequest"];
 
@@ -125,5 +127,27 @@ export function useUpdateTaskAssignee(taskId: number, projectId: number) {
       }
       return refreshOnStale(error);
     },
+  });
+}
+
+// Task 削除(owner のみ)。onDeleted で詳細画面から移動する。削除中に利用者が別の画面へ移っていたら呼ばない。
+export function useDeleteTask(taskId: number, projectId: number, { onDeleted }: { onDeleted: () => void }) {
+  const queryClient = useQueryClient();
+  const mounted = useMounted();
+  return useMutation({
+    mutationFn: () => unwrap(api.DELETE("/api/tasks/{taskId}", { params: { path: { taskId } } })),
+    onSuccess: () => {
+      if (mounted.current) onDeleted();
+      // 削除した Task の詳細は取り直さず(404 になる)、移動を予約した後にキャッシュから消す(プロジェクトの削除と同じ)。
+      queryClient.removeQueries({ queryKey: taskKeys.detail(taskId) });
+      // 戻った一覧に、取り直しが終わるまで削除した Task が残って見えないよう、キャッシュから先に除く。
+      queryClient.setQueriesData<TaskList>({ queryKey: projectKeys.tasks(projectId) }, (list) =>
+        list && list.items.some((item) => item.id === taskId)
+          ? { ...list, items: list.items.filter((item) => item.id !== taskId), total: list.total - 1 }
+          : list,
+      );
+      return queryClient.invalidateQueries({ queryKey: projectKeys.tasks(projectId) });
+    },
+    onError: refreshTaskOnStaleError(queryClient, taskId, projectId),
   });
 }
