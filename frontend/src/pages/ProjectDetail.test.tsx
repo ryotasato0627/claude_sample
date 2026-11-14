@@ -295,6 +295,23 @@ describe("プロジェクト削除", () => {
     expect(vi.mocked(api.GET).mock.calls.filter((call) => call[0] === "/api/projects/{projectId}")).toHaveLength(1);
   });
 
+  it("一覧から開いた詳細で削除すると、一覧へ戻って取り直し、詳細は取り直さない", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    mockGet(ok(alpha), ok([alpha]));
+    vi.mocked(api.DELETE).mockResolvedValue({ response: { ok: true, status: 204 } } as never);
+    renderApp("/projects");
+    fireEvent.click(await screen.findByRole("link", { name: "Alpha" }));
+    await screen.findByRole("heading", { name: "Alpha", level: 1 });
+
+    mockGet(fail(404), ok([]));
+    fireEvent.click(screen.getByRole("button", { name: "削除する" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("「Alpha」を削除しました");
+    expect(await screen.findByText("所属しているプロジェクトはまだありません")).toBeInTheDocument();
+    expect(screen.queryByText("プロジェクトが見つかりません")).not.toBeInTheDocument();
+    expect(vi.mocked(api.GET).mock.calls.filter((call) => call[0] === "/api/projects/{projectId}")).toHaveLength(1);
+  });
+
   it("確認で取り消すと、削除しない", async () => {
     vi.spyOn(window, "confirm").mockReturnValue(false);
     mockGet(ok(alpha));

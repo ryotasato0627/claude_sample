@@ -65,8 +65,10 @@ function ProjectView({ projectId }: { projectId: number }) {
 function ManageProject({ project }: { project: Project }) {
   const [editing, setEditing] = useState(false);
   const update = useUpdateProject(project.id);
-  const remove = useDeleteProject(project.id);
   const navigate = useNavigate();
+  const remove = useDeleteProject(project.id, {
+    onDeleted: () => navigate("/projects", { replace: true, state: { deletedProjectName: project.name } }),
+  });
 
   const startEditing = () => {
     update.reset();
@@ -75,9 +77,7 @@ function ManageProject({ project }: { project: Project }) {
 
   const deleteProject = () => {
     if (!window.confirm(`「${project.name}」を削除しますか?Task とコメントもすべて削除されます`)) return;
-    remove.mutate(undefined, {
-      onSuccess: () => navigate("/projects", { replace: true, state: { deletedProjectName: project.name } }),
-    });
+    remove.mutate();
   };
 
   const busy = update.isPending || remove.isPending;

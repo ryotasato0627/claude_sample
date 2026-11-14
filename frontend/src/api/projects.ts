@@ -64,13 +64,15 @@ export function useUpdateProject(projectId: number) {
   });
 }
 
-export function useDeleteProject(projectId: number) {
+// onDeleted で詳細画面から移動する。
+export function useDeleteProject(projectId: number, { onDeleted }: { onDeleted: () => void }) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: () => unwrap(api.DELETE("/api/projects/{projectId}", { params: { path: { projectId } } })),
-    // 削除したプロジェクトの詳細は取り直さず(404 になる)、キャッシュから消す。
-    // 呼び出し側は成功後すぐに詳細画面から移動する前提。移動前に詳細画面が再描画されると、消した詳細を取り直してしまう。
     onSuccess: () => {
+      onDeleted();
+      // 削除したプロジェクトの詳細は取り直さず(404 になる)、キャッシュから消す。
+      // 詳細画面の表示中に消すと取り直してしまうため、移動の後に消す。
       queryClient.removeQueries({ queryKey: projectKeys.detail(projectId) });
       return queryClient.invalidateQueries({ queryKey: projectKeys.lists() });
     },
