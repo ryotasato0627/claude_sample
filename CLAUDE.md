@@ -62,3 +62,4 @@ docker compose run --rm frontend npm test
 | Skill | `add-endpoint` / `add-migration` | エンドポイント・マイグレーションの追加手順 |
 | Skill | `pr-strategy` / `commit-strategy` | PR・コミットの分割計画 |
 | Skill | `pr-review` | レビューの手順と出力形式 |
+| Skill | `address-pr` | PR のレビューコメント対応(方針を提示し、承認後に修正・返信) |
