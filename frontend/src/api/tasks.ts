@@ -11,6 +11,8 @@ type CreateTaskRequest = components["schemas"]["CreateTaskRequest"];
 export type UpdateTaskRequest = components["schemas"]["UpdateTaskRequest"];
 
 // Task 詳細のキー。一覧(projectKeys.tasks)はプロジェクトの下にある。
+// 詳細はプロジェクトの下に無いため、プロジェクトの削除やメンバーの削除では消えない・無効化されない。
+// staleTime が既定の 0 で、開くたびに取り直す(404 なら見つからない表示にする)ことに依存している。
 export const taskKeys = {
   all: ["tasks"] as const,
   detail: (taskId: number) => [...taskKeys.all, "detail", taskId] as const,

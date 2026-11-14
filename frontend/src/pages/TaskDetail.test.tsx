@@ -16,6 +16,7 @@ const user = { id: 1, email: "alice@example.com", name: "Alice", createdAt: "202
 
 const alice: Member = { userId: 1, email: "alice@example.com", name: "Alice", role: "owner" };
 const bob: Member = { userId: 2, email: "bob@example.com", name: "Bob", role: "member" };
+const carol: Member = { userId: 3, email: "carol@example.com", name: "Carol", role: "viewer" };
 
 function project(role: Role): Project {
   return { id: 1, name: "Alpha", description: "", role, createdAt: "2026-01-01T00:00:00Z" };
@@ -184,6 +185,25 @@ describe("Task 詳細", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("エラーが発生しました");
     expect(screen.queryByRole("button", { name: "編集する" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+  });
+
+  it("ロールが分かるまで(プロジェクトの読み込み中)は、操作を表示しない", async () => {
+    mockGet({ detail: new Promise(() => {}) });
+    renderApp();
+    await screen.findByRole("heading", { name: "設計", level: 1 });
+
+    expect(screen.queryByRole("button", { name: "編集する" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+  });
+
+  it("メンバー一覧を取得できなければ、エラーを表示し、担当者を変更させない", async () => {
+    mockGet({ members: fail(500) });
+    renderApp();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("メンバー一覧を取得できません");
+    expect(screen.getByRole("combobox", { name: "担当者" })).toBeDisabled();
+    expect(screen.getByRole("combobox", { name: "ステータス" })).toBeEnabled();
   });
 });
 
@@ -316,6 +336,29 @@ describe("Task 編集", () => {
     expect(editForm().getByRole("button", { name: "キャンセル" })).toBeDisabled();
   });
 
+  it("失敗したら(500)、エラーを表示し、入力を残す", async () => {
+    mockGet();
+    vi.mocked(api.PATCH).mockResolvedValue(fail(500));
+    renderApp();
+
+    await submitEdit("設計 2", "画面の設計");
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("エラーが発生しました");
+    expect(editForm().getByLabelText("タイトル")).toHaveValue("設計 2");
+  });
+
+  it("保存中は、ステータスと担当者も操作できない", async () => {
+    mockGet();
+    vi.mocked(api.PATCH).mockReturnValue(new Promise(() => {}) as never);
+    renderApp();
+    await within(await screen.findByRole("combobox", { name: "担当者" })).findByRole("option", { name: "Bob" });
+
+    await submitEdit("設計 2", "画面の設計");
+
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "ステータス" })).toBeDisabled());
+    expect(screen.getByRole("combobox", { name: "担当者" })).toBeDisabled();
+  });
+
   it("タイトルは必須・200 文字以内、説明は 10000 文字以内。現在の値を初期値にする", async () => {
     mockGet();
     renderApp();
@@ -348,7 +391,7 @@ describe("ステータス変更", () => {
     expect(getCalls("/api/tasks/{taskId}")).toHaveLength(1);
   });
 
-  it("変更中は、ステータスと担当者を操作できない(二重送信の防止)", async () => {
+  it("変更中は、ステータス・担当者・編集を操作できない(二重送信の防止)", async () => {
     mockGet();
     vi.mocked(api.PATCH).mockReturnValue(new Promise(() => {}) as never);
     renderApp();
@@ -357,6 +400,7 @@ describe("ステータス変更", () => {
 
     await waitFor(() => expect(screen.getByRole("combobox", { name: "ステータス" })).toBeDisabled());
     expect(screen.getByRole("combobox", { name: "担当者" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "編集する" })).toBeDisabled();
   });
 
   it("失敗したら、エラーを表示し、元のステータスのままにする", async () => {
@@ -458,6 +502,50 @@ describe("担当者変更", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("このプロジェクトのメンバーではありません");
     await waitFor(() => expect(within(select).queryByRole("option", { name: "Alice" })).not.toBeInTheDocument());
+    expect(select).toHaveValue("2");
+  });
+
+  // 要件 3.3: 担当者にできるのはそのプロジェクトのメンバー(Viewer も可)
+  it("viewer ロールのメンバーも担当者にできる", async () => {
+    mockGet({ members: ok([alice, bob, carol]) });
+    vi.mocked(api.PATCH).mockResolvedValue(ok({ ...design, assigneeId: 3 }));
+    renderApp();
+    const select = await screen.findByRole("combobox", { name: "担当者" });
+    await within(select).findByRole("option", { name: "Carol" });
+
+    fireEvent.change(select, { target: { value: "3" } });
+
+    expect(await screen.findByRole("status")).toHaveTextContent("担当者を変更しました");
+    expect(api.PATCH).toHaveBeenCalledWith("/api/tasks/{taskId}/assignee", {
+      params: { path: { taskId: 7 } },
+      body: { assigneeId: 3 },
+    });
+  });
+
+  it("変更が 404 なら、見つからない旨を表示する", async () => {
+    mockGet();
+    vi.mocked(api.PATCH).mockResolvedValue(fail(404));
+    renderApp();
+    const select = await screen.findByRole("combobox", { name: "担当者" });
+    await within(select).findByRole("option", { name: "Alice" });
+
+    mockGet({ task: fail(404) });
+    fireEvent.change(select, { target: { value: "1" } });
+
+    await waitFor(() => expect(screen.queryByRole("combobox")).not.toBeInTheDocument());
+    expect(screen.getByRole("alert")).toHaveTextContent("Task が見つかりません");
+  });
+
+  it("失敗したら(500)、エラーを表示し、元の担当者のままにする", async () => {
+    mockGet();
+    vi.mocked(api.PATCH).mockResolvedValue(fail(500));
+    renderApp();
+    const select = await screen.findByRole("combobox", { name: "担当者" });
+    await within(select).findByRole("option", { name: "Alice" });
+
+    fireEvent.change(select, { target: { value: "1" } });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("エラーが発生しました");
     expect(select).toHaveValue("2");
   });
 

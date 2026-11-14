@@ -59,7 +59,8 @@ function TaskView({ task }: { task: Task }) {
 
   const canChangeStatus = role !== undefined && can(role, "changeTaskStatus");
   const canChangeAssignee = role !== undefined && can(role, "changeTaskAssignee");
-  const changing = changeStatus.isPending || changeAssignee.isPending;
+  // 保存と変更を並行させない(応答の到着順で、古い応答が表示を上書きしないように)。
+  const busy = update.isPending || changeStatus.isPending || changeAssignee.isPending;
 
   // 直前の操作の結果だけを表示する。
   const resetResults = () => {
@@ -100,6 +101,8 @@ function TaskView({ task }: { task: Task }) {
         </Link>
       </p>
       {project.isError && <p role="alert">{errorMessage(project.error)}</p>}
+      {/* 担当者の名前と候補を表示できない理由を示す(404 は useMembers がプロジェクトを取り直す) */}
+      {members.isError && <p role="alert">メンバー一覧を取得できません。{errorMessage(members.error)}</p>}
       {/* 編集中に権限が無くなったら(403 の後にロールを取り直した場合など)、フォームを閉じる */}
       {editing && canWrite ? (
         <EditTaskForm
@@ -116,7 +119,7 @@ function TaskView({ task }: { task: Task }) {
           {task.description && <p style={{ whiteSpace: "pre-line" }}>{task.description}</p>}
           {update.isSuccess && <p role="status">Task を更新しました</p>}
           {canWrite && (
-            <button type="button" onClick={startEditing}>
+            <button type="button" onClick={startEditing} disabled={busy}>
               編集する
             </button>
           )}
@@ -141,7 +144,7 @@ function TaskView({ task }: { task: Task }) {
               aria-label="ステータス"
               value={task.status}
               onChange={(event) => selectStatus(event.target.value)}
-              disabled={changing}
+              disabled={busy}
             >
               {taskStatuses.map((status) => (
                 <option key={status} value={status}>
@@ -160,7 +163,8 @@ function TaskView({ task }: { task: Task }) {
               aria-label="担当者"
               value={task.assigneeId ?? ""}
               onChange={(event) => selectAssignee(event.target.value)}
-              disabled={changing}
+              // 候補(メンバー一覧)を取得できていない間は変更させない
+              disabled={busy || !members.data}
             >
               <option value="">未割り当て</option>
               {members.data?.map((member) => (
@@ -198,6 +202,10 @@ type EditTaskFormProps = {
 };
 
 function EditTaskForm({ task, onSubmit, onCancel, pending, error }: EditTaskFormProps) {
+  // フォームを開いた時点の値。編集中に Task を取り直して他の人の変更が入っても、
+  // 自分が触っていない項目を「変更あり」として古い値で上書きしないよう、これと比較する。
+  const [initial] = useState({ title: task.title, description: task.description });
+
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
@@ -205,8 +213,8 @@ function EditTaskForm({ task, onSubmit, onCancel, pending, error }: EditTaskForm
     const description = String(form.get("description"));
     // 変更した項目だけを送る(部分更新。他の人が同時に別の項目を更新しても消さない)。
     const body: UpdateTaskRequest = {};
-    if (title !== task.title) body.title = title;
-    if (description !== task.description) body.description = description;
+    if (title !== initial.title) body.title = title;
+    if (description !== initial.description) body.description = description;
     if (Object.keys(body).length === 0) {
       onCancel();
       return;
@@ -219,11 +227,11 @@ function EditTaskForm({ task, onSubmit, onCancel, pending, error }: EditTaskForm
     <form onSubmit={submit} aria-label="Task を編集">
       <label>
         タイトル
-        <input name="title" required maxLength={200} defaultValue={task.title} />
+        <input name="title" required maxLength={200} defaultValue={initial.title} />
       </label>
       <label>
         説明
-        <textarea name="description" maxLength={10000} defaultValue={task.description} />
+        <textarea name="description" maxLength={10000} defaultValue={initial.description} />
       </label>
       {error && <p role="alert">{error}</p>}
       <div role="group">
